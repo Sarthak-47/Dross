@@ -4,6 +4,7 @@ members = [
     "crates/dross-core",
     "crates/dross-cli",
     "crates/dross-adapters",
+    "apps/desktop/src-tauri",
 ]
 
 [workspace.package]
