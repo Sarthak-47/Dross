@@ -11,6 +11,8 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+# `let` chains are used in the check and adapter code; they stabilized in 1.88.
+rust-version = "1.88"
 authors = ["Sarthak Singh"]
 license = "Apache-2.0"
 repository = "https://github.com/Sarthak-47/Dross"

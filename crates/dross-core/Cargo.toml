@@ -2,6 +2,7 @@
 name = "dross-core"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Deterministic, model-free analysis engine for agent-generated diffs"

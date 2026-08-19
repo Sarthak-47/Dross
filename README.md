@@ -35,7 +35,7 @@ The over-engineering check does not use a hardcoded "functions over N branches a
 
 ## Install
 
-Requires Rust 1.85+.
+Requires Rust 1.88+ (the workspace uses `let` chains).
 
 ```bash
 git clone https://github.com/Sarthak-47/Dross.git
