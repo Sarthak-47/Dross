@@ -241,26 +241,30 @@ fn does_not_flag_well_formed_tests() {
 
 // --- contract change -----------------------------------------------------
 
+/// Pairs are named `<stem>.before.<ext>` / `<stem>.after.<ext>`. The extension
+/// is discovered rather than assumed, so Python pairs are covered too.
 fn run_contract_pairs(polarity: &str) -> Vec<(String, Vec<Finding>)> {
     let dir = corpus_root().join("contract-change").join(polarity);
-    let mut pairs: Vec<String> = std::fs::read_dir(&dir)
+    let mut pairs: Vec<(String, String)> = std::fs::read_dir(&dir)
         .unwrap()
         .flatten()
         .filter_map(|e| {
             let name = e.file_name().to_string_lossy().to_string();
-            name.strip_suffix(".before.ts").map(|s| s.to_string())
+            let (stem, ext) = name.split_once(".before.")?;
+            Some((stem.to_string(), ext.to_string()))
         })
         .collect();
     pairs.sort();
+    assert!(!pairs.is_empty(), "no contract-change pairs in {polarity}");
 
     pairs
         .into_iter()
-        .map(|stem| {
-            let before = std::fs::read_to_string(dir.join(format!("{stem}.before.ts"))).unwrap();
-            let after = std::fs::read_to_string(dir.join(format!("{stem}.after.ts"))).unwrap();
-            let path = dir.join(format!("{stem}.ts"));
+        .map(|(stem, ext)| {
+            let before = std::fs::read_to_string(dir.join(format!("{stem}.before.{ext}"))).unwrap();
+            let after = std::fs::read_to_string(dir.join(format!("{stem}.after.{ext}"))).unwrap();
+            let path = dir.join(format!("{stem}.{ext}"));
             let findings = analyze(vec![modified_diff(&path, &before, &after)], None);
-            (stem, findings)
+            (format!("{stem}.{ext}"), findings)
         })
         .collect()
 }
