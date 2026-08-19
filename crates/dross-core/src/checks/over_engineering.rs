@@ -34,6 +34,15 @@ impl Check for OverEngineeringCheck {
             let Some(parsed) = ctx.parsed(&file.path) else {
                 continue;
             };
+            // Test code is exempt from the indirection and generality signals.
+            // A test that performs a single assertion looks exactly like a
+            // pass-through wrapper, and a fixture helper called from one test
+            // looks exactly like unused generality — both are normal there.
+            // Found by running Dross against its own repository, where
+            // `test_roundtrip` was flagged for forwarding to `assertEqual`.
+            if super::tautological_test::is_test_path(&file.path) {
+                continue;
+            }
             findings.extend(pass_through_wrappers(parsed, file, &symbols));
             findings.extend(single_implementation_abstractions(parsed, file, &symbols));
             findings.extend(overkill_patterns(parsed, file));
