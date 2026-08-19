@@ -36,7 +36,16 @@ export function RepoBar({
           <span className="repo-name">{repo.name}</span>
           <span className="repo-meta">
             {repo.indexedFunctions.toLocaleString()} functions indexed ·{" "}
-            {repo.baselineSamples} baseline samples
+            {repo.baselineSamples} baseline samples ·{" "}
+            <span
+              title={
+                repo.watcherActive
+                  ? "Edits are being watched, so burst-write authorship detection is active."
+                  : "No file watcher, so authorship comes only from commit trailers."
+              }
+            >
+              authorship: {repo.watcherActive ? "watching" : "trailers only"}
+            </span>
           </span>
         </div>
       ) : (

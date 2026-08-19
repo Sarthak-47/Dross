@@ -19,6 +19,7 @@ anyhow = "1"
 dross-adapters = { path = "../../../crates/dross-adapters" }
 dross-core = { path = "../../../crates/dross-core" }
 log = "0.4"
+notify = "8.2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tauri = { version = "2.11.3" }

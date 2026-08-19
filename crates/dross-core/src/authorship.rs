@@ -85,6 +85,11 @@ impl AuthorshipMap {
         self.ranges.get(path).map(|v| v.as_slice()).unwrap_or(&[])
     }
 
+    /// Every tagged path and its ranges, for merging two maps.
+    pub fn iter(&self) -> impl Iterator<Item = (&PathBuf, &Vec<TaggedRange>)> {
+        self.ranges.iter()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.ranges.is_empty()
     }

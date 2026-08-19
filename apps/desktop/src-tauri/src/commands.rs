@@ -16,12 +16,17 @@ use crate::state::AppState;
 type CmdResult<T> = Result<T, String>;
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RepositoryInfo {
     pub root: PathBuf,
     pub name: String,
     pub index_built: bool,
     pub indexed_functions: usize,
     pub baseline_samples: usize,
+    /// Whether the file watcher is running. Without it the burst-write
+    /// heuristic has no input and everything falls back to commit trailers,
+    /// which the UI states rather than leaving the user to guess.
+    pub watcher_active: bool,
 }
 
 #[tauri::command]
@@ -54,6 +59,7 @@ pub fn current_repository(state: State<'_, AppState>) -> CmdResult<RepositoryInf
         index_built: indexed_functions > 0,
         indexed_functions,
         baseline_samples,
+        watcher_active: state.watcher_active(),
         root,
     })
 }

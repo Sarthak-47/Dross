@@ -3,6 +3,7 @@
 
 mod commands;
 mod state;
+mod watcher;
 
 use state::AppState;
 

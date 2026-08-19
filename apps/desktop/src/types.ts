@@ -52,6 +52,8 @@ export interface RepositoryInfo {
   indexBuilt: boolean;
   indexedFunctions: number;
   baselineSamples: number;
+  /** Whether burst-write authorship detection has a live event source. */
+  watcherActive: boolean;
 }
 
 export type AdapterId =
