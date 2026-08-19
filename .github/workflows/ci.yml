@@ -11,6 +11,9 @@ env:
   RUSTFLAGS: -D warnings
 
 jobs:
+  # The engine, CLI, adapters, and benchmark harness have no system
+  # dependencies, so they run on all three platforms cheaply. The desktop crate
+  # needs a GTK/WebKit toolchain and is built separately.
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -26,24 +29,29 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      - name: Cache cargo registry and build
-        uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2
 
       - name: Check formatting
         run: cargo fmt --all -- --check
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: >
+          cargo clippy
+          -p dross-core -p dross-cli -p dross-adapters -p dross-bench
+          --all-targets -- -D warnings
 
       - name: Test
-        run: cargo test --workspace --all-targets
+        run: >
+          cargo test
+          -p dross-core -p dross-cli -p dross-adapters -p dross-bench
+          --all-targets
 
-      # The engine's whole value proposition is determinism: the same diff must
-      # produce byte-identical findings across platforms and repeated runs.
+      # Reproducibility is the tool's central claim, so it is enforced rather
+      # than asserted: the same diff analyzed twice must match exactly.
       - name: Verify deterministic output
         shell: bash
         run: |
-          cargo build --release
+          cargo build --release -p dross-cli
           BIN="target/release/dross"
           [ -f "$BIN.exe" ] && BIN="$BIN.exe"
           "$BIN" --version
@@ -53,7 +61,7 @@ jobs:
           import json, sys
           a = json.load(open("run1.json"))
           b = json.load(open("run2.json"))
-          # duration_ms legitimately varies between runs; findings must not.
+          # Timing legitimately varies between runs; findings must not.
           for doc in (a, b):
               doc.pop("duration_ms", None)
           if a != b:
@@ -62,6 +70,48 @@ jobs:
           print(f"deterministic: {len(a['findings'])} finding(s) reproduced exactly")
           PY
 
+  desktop:
+    name: desktop app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libgtk-3-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix apps/desktop
+
+      - name: Type-check and build frontend
+        run: npm run build --prefix apps/desktop
+
+      - name: Clippy (desktop backend)
+        run: cargo clippy -p dross-desktop --all-targets -- -D warnings
+
+      - name: Build desktop backend
+        run: cargo build -p dross-desktop
+
   msrv:
     name: minimum supported rust version
     runs-on: ubuntu-latest
@@ -69,7 +119,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.85.0
       - uses: Swatinem/rust-cache@v2
-      - run: cargo check --workspace
+      # The desktop crate is excluded: Tauri tracks its own MSRV, and the
+      # figure that matters to someone installing the CLI is the CLI's.
+      - run: cargo check -p dross-core -p dross-cli -p dross-adapters -p dross-bench
 
   audit:
     name: dependency audit

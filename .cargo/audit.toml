@@ -1,0 +1,36 @@
+# cargo-audit configuration.
+#
+# Actual vulnerabilities fail the build. Informational "unmaintained" advisories
+# do not, because every one currently reported comes from the GTK3 stack that
+# Tauri pulls in transitively on Linux — nothing in this workspace can resolve
+# them, and a permanently red audit job trains people to ignore the real ones.
+#
+# The vulnerability check itself stays strict.
+
+[advisories]
+ignore = [
+    # gtk-rs GTK3 bindings, unmaintained. Transitive via tauri on Linux.
+    "RUSTSEC-2024-0411",
+    "RUSTSEC-2024-0412",
+    "RUSTSEC-2024-0413",
+    "RUSTSEC-2024-0414",
+    "RUSTSEC-2024-0415",
+    "RUSTSEC-2024-0416",
+    "RUSTSEC-2024-0417",
+    "RUSTSEC-2024-0418",
+    "RUSTSEC-2024-0419",
+    "RUSTSEC-2024-0420",
+    # glib unsoundness in VariantStrIter. Transitive via tauri; the affected
+    # iterator is not reachable from this workspace's code.
+    "RUSTSEC-2024-0429",
+    # proc-macro-error, unmaintained. Transitive build dependency.
+    "RUSTSEC-2024-0370",
+    # rust-unic crates, unmaintained. Transitive via tauri.
+    "RUSTSEC-2025-0075",
+    "RUSTSEC-2025-0080",
+    "RUSTSEC-2025-0081",
+    "RUSTSEC-2025-0098",
+    "RUSTSEC-2025-0100",
+]
+informational_warnings = ["unmaintained", "unsound", "notice"]
+severity_threshold = "low"
