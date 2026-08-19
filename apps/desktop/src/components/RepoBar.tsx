@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 import type { IndexProgress, RepositoryInfo } from "../types";
 
 interface Props {
@@ -62,6 +63,18 @@ export function RepoBar({
             placeholder="Path to a git repository"
             spellCheck={false}
           />
+          <button
+            type="button"
+            disabled={busy !== null}
+            onClick={async () => {
+              // Falls back to the text field if the dialog is unavailable,
+              // which is the case when the UI runs in a plain browser.
+              const picked = await open({ directory: true }).catch(() => null);
+              if (typeof picked === "string") onOpen(picked);
+            }}
+          >
+            Browse…
+          </button>
           <button type="submit" disabled={!path.trim() || busy !== null}>
             Open
           </button>

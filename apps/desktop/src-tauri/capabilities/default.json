@@ -1,11 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "enables the default permissions",
-  "windows": [
-    "main"
-  ],
-  "permissions": [
-    "core:default"
-  ]
+  "description": "Core webview permissions plus a folder picker. File reads go through the file_source command, which confines them to the open repository, so no filesystem permission is granted to the renderer.",
+  "windows": ["main"],
+  "permissions": ["core:default", "dialog:allow-open"]
 }

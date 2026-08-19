@@ -5,10 +5,12 @@ import { api } from "./api";
 import { Connections } from "./components/Connections";
 import { FindingsPanel } from "./components/FindingsPanel";
 import { RiskHistory } from "./components/RiskHistory";
+import { Settings } from "./components/Settings";
 import { SourceView } from "./components/SourceView";
 import { RepoBar } from "./components/RepoBar";
 import type {
   AdapterStatus,
+  DrossConfig,
   Finding,
   IndexProgress,
   Report,
@@ -17,14 +19,22 @@ import type {
 } from "./types";
 import "./App.css";
 
-type Tab = "findings" | "connections" | "history";
+type Tab = "findings" | "connections" | "history" | "settings";
 type Target = "worktree" | "staged";
+
+const TAB_LABELS: Record<Tab, string> = {
+  findings: "Findings",
+  connections: "Connections",
+  history: "Risk history",
+  settings: "Settings",
+};
 
 export default function App() {
   const [repo, setRepo] = useState<RepositoryInfo | null>(null);
   const [report, setReport] = useState<Report | null>(null);
   const [connections, setConnections] = useState<AdapterStatus[]>([]);
   const [history, setHistory] = useState<RiskEntry[]>([]);
+  const [config, setConfig] = useState<DrossConfig | null>(null);
   const [selected, setSelected] = useState<Finding | null>(null);
   const [tab, setTab] = useState<Tab>("findings");
   const [target, setTarget] = useState<Target>("worktree");
@@ -76,6 +86,18 @@ export default function App() {
       setReport(null);
       setSelected(null);
       setConnections(await api.listConnections().catch(() => []));
+      setConfig(await api.getConfig().catch(() => null));
+    },
+    [guard],
+  );
+
+  const saveConfig = useCallback(
+    async (next: DrossConfig) => {
+      // Applied optimistically: the settings pane must stay responsive, and a
+      // failed write is reported in the error banner.
+      setConfig(next);
+      const saved = await guard("Saving settings", () => api.setConfig(next));
+      if (saved) setConfig(saved);
     },
     [guard],
   );
@@ -139,15 +161,13 @@ export default function App() {
       )}
 
       <nav className="tabs">
-        {(["findings", "connections", "history"] as Tab[]).map((t) => (
+        {(Object.keys(TAB_LABELS) as Tab[]).map((t) => (
           <button
             key={t}
             className={t === tab ? "tab tab-active" : "tab"}
             onClick={() => setTab(t)}
           >
-            {t === "findings" && "Findings"}
-            {t === "connections" && "Connections"}
-            {t === "history" && "Risk history"}
+            {TAB_LABELS[t]}
             {t === "findings" && report && report.findings.length > 0 && (
               <span className="tab-count">{report.findings.length}</span>
             )}
@@ -187,6 +207,14 @@ export default function App() {
         )}
 
         {tab === "history" && <RiskHistory entries={history} />}
+
+        {tab === "settings" && (
+          <Settings
+            config={config}
+            disabled={!repo || busy !== null}
+            onChange={saveConfig}
+          />
+        )}
       </main>
     </div>
   );

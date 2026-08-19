@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AdapterStatus,
+  DrossConfig,
   Report,
   RepositoryInfo,
   RiskEntry,
@@ -28,6 +29,11 @@ export const api = {
   riskHistory: (limit = 50) => invoke<RiskEntry[]>("risk_history", { limit }),
 
   fileSource: (path: string) => invoke<string>("file_source", { path }),
+
+  getConfig: () => invoke<DrossConfig>("get_config"),
+
+  setConfig: (config: DrossConfig) =>
+    invoke<DrossConfig>("set_config", { config }),
 
   overrideAuthorship: (
     path: string,

@@ -80,6 +80,17 @@ export interface RiskEntry {
   count: number;
 }
 
+/** Mirrors dross_core::config::Config. */
+export interface DrossConfig {
+  disabled_checks: CheckId[];
+  min_severity: Severity;
+  clone_threshold: number;
+  complexity_z_threshold: number;
+  ignore_dirs: string[];
+  baseline_commits: number;
+  block_at: Severity | null;
+}
+
 export interface IndexProgress {
   done: number;
   total: number;
