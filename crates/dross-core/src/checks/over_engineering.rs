@@ -480,7 +480,7 @@ fn complexity_outlier(ctx: &CheckContext<'_>) -> Vec<Finding> {
     }
     let ratio = total_complexity as f64 / total_lines as f64;
     let z = stats.z_score(ratio);
-    if z < OUTLIER_Z_THRESHOLD {
+    if z < ctx.config.complexity_z_threshold {
         return Vec::new();
     }
 

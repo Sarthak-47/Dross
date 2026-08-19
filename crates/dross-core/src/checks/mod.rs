@@ -22,6 +22,9 @@ pub struct CheckContext<'a> {
     pub diffs: &'a [FileDiff],
     pub authorship: &'a AuthorshipMap,
     pub index: Option<&'a FingerprintIndex>,
+    /// Tunables the checks read. Without this the configured thresholds are
+    /// inert and the settings UI silently does nothing.
+    pub config: &'a crate::config::Config,
     parsed: HashMap<PathBuf, ParsedFile>,
 }
 
@@ -31,6 +34,7 @@ impl<'a> CheckContext<'a> {
         diffs: &'a [FileDiff],
         authorship: &'a AuthorshipMap,
         index: Option<&'a FingerprintIndex>,
+        config: &'a crate::config::Config,
     ) -> Self {
         // Parse each changed file once; every check reuses the same tree.
         let mut parsed = HashMap::new();
@@ -47,6 +51,7 @@ impl<'a> CheckContext<'a> {
             diffs,
             authorship,
             index,
+            config,
             parsed,
         }
     }

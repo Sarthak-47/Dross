@@ -42,7 +42,8 @@ impl Check for StructuralCloneCheck {
                 if fp.shingle_count < MIN_SHINGLES {
                     continue;
                 }
-                let Ok(hits) = index.find_similar(&fp, DEFAULT_THRESHOLD, Some(&file.path)) else {
+                let threshold = ctx.config.clone_threshold;
+                let Ok(hits) = index.find_similar(&fp, threshold, Some(&file.path)) else {
                     continue;
                 };
                 let Some((twin, similarity)) = hits.into_iter().next() else {

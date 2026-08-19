@@ -110,7 +110,13 @@ impl Engine {
     ) -> Result<Report> {
         let started = std::time::Instant::now();
 
-        let ctx = CheckContext::new(repo_root, diffs, authorship, self.index.as_ref());
+        let ctx = CheckContext::new(
+            repo_root,
+            diffs,
+            authorship,
+            self.index.as_ref(),
+            &self.config,
+        );
         let mut findings = Vec::new();
         let mut skipped = Vec::new();
 
@@ -411,8 +417,64 @@ mod tests {
         let src = "function fetchUser(id) { return getUser(id); }\nfetchUser(1);\n";
         let diffs = vec![diff_of("src/a.js", src, Language::JavaScript)];
         let authorship = AuthorshipMap::new();
-        let ctx = CheckContext::new(Path::new("."), &diffs, &authorship, None);
+        let config = Config::default();
+        let ctx = CheckContext::new(Path::new("."), &diffs, &authorship, None, &config);
         assert_eq!(ctx.symbols().call_site_count("fetchUser"), 1);
+    }
+
+    /// Regression: the checks read hardcoded constants instead of the
+    /// configured values, so `clone_threshold` was inert and the settings UI
+    /// appeared to work while changing nothing.
+    #[test]
+    fn clone_threshold_from_config_is_honoured() {
+        use crate::index::FingerprintIndex;
+
+        let existing = "function computeTotal(items) {\n  let total = 0;\n  for (const item of items) {\n    total += item.price * item.quantity;\n  }\n  return total;\n}\n";
+        let candidate = "function summarize(rows) {\n  let acc = 0;\n  for (const row of rows) {\n    acc += row.price * row.quantity;\n  }\n  log(acc);\n  return acc;\n}\n";
+
+        let build_index = || {
+            let mut index = FingerprintIndex::open_in_memory().unwrap();
+            index
+                .index_file(Path::new("src/cart.js"), Language::JavaScript, existing)
+                .unwrap();
+            index
+        };
+
+        let diffs = vec![diff_of("src/other.js", candidate, Language::JavaScript)];
+
+        // An impossible threshold must silence the check entirely.
+        let strict = Config {
+            clone_threshold: 1.01,
+            ..Config::default()
+        };
+        let strict_report = Engine::new(strict)
+            .with_index(build_index())
+            .analyze_diffs(Path::new("."), &diffs, &AuthorshipMap::new())
+            .unwrap();
+        assert!(
+            !strict_report
+                .findings
+                .iter()
+                .any(|f| f.check == crate::finding::CheckId::StructuralClone),
+            "a threshold above 1.0 must produce no clone findings"
+        );
+
+        // A permissive threshold must surface the near-duplicate.
+        let loose = Config {
+            clone_threshold: 0.1,
+            ..Config::default()
+        };
+        let loose_report = Engine::new(loose)
+            .with_index(build_index())
+            .analyze_diffs(Path::new("."), &diffs, &AuthorshipMap::new())
+            .unwrap();
+        assert!(
+            loose_report
+                .findings
+                .iter()
+                .any(|f| f.check == crate::finding::CheckId::StructuralClone),
+            "a permissive threshold must surface the near-duplicate"
+        );
     }
 
     #[test]

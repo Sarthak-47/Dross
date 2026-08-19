@@ -157,16 +157,20 @@ pub fn history(entries: &[RiskEntry]) {
     }
     println!();
     println!(
-        "  {:<26} {:<22} {:<10} {}",
+        "  {:<20} {:<34} {:<9} {}",
         "when".bold(),
         "signal".bold(),
         "severity".bold(),
         "count".bold()
     );
     for e in entries {
+        // RFC 3339 carries sub-second precision and an offset that add nothing
+        // here and push the columns out of alignment.
+        let when = e.recorded_at.replace('T', " ");
+        let when = when.get(..19).unwrap_or(&when);
         println!(
-            "  {:<26} {:<22} {:<10} {}",
-            e.recorded_at, e.signal, e.severity, e.count
+            "  {:<20} {:<34} {:<9} {:>5}",
+            when, e.signal, e.severity, e.count
         );
     }
     println!();

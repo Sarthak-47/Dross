@@ -62,9 +62,13 @@ struct CheckArgs {
     /// Exit non-zero when findings reach the blocking severity.
     #[arg(long)]
     hook: bool,
-    /// Severity at or above which --hook exits non-zero.
-    #[arg(long, value_enum, default_value_t = SeverityArg::Error)]
-    block_at: SeverityArg,
+    /// Severity at or above which --hook exits non-zero. Overrides the
+    /// repository's `block_at` setting; defaults to `error` if neither is set.
+    #[arg(long, value_enum)]
+    block_at: Option<SeverityArg>,
+    /// Skip appending this run to the local risk history.
+    #[arg(long)]
+    no_record: bool,
     /// No-op unless the invoking command was a `git commit`. Used by the
     /// Codex and Claude Code Bash-tool hooks, which fire on every command.
     #[arg(long)]
@@ -167,6 +171,7 @@ fn cmd_check(args: &CheckArgs, repo_root: &Path) -> Result<i32> {
     }
 
     let config = Config::load(repo_root);
+    let blocking_policy = config.block_at;
     let index = FingerprintIndex::open(&Config::index_path(repo_root)).ok();
     let mut engine = Engine::new(config);
     if let Some(index) = index {
@@ -186,7 +191,26 @@ fn cmd_check(args: &CheckArgs, repo_root: &Path) -> Result<i32> {
 
     render_report(&report, args)?;
 
-    if args.hook && report.has_blocking(args.block_at.into()) {
+    // Record the run so `dross history` shows a trend from CI and hook runs,
+    // not only from the desktop app. Failing to record must not fail the
+    // check itself — a read-only index is not a reason to block a commit.
+    if !args.no_record
+        && let Ok(index) = FingerprintIndex::open(&Config::index_path(repo_root))
+        && let Err(e) = index.record_findings(None, &report.findings)
+    {
+        eprintln!("{} could not record history: {e}", "note:".yellow());
+    }
+
+    // An explicit flag wins so a CI job can be stricter than the repository's
+    // own policy; otherwise the repository setting applies, and `error` is the
+    // fallback when neither is set.
+    let threshold = args
+        .block_at
+        .map(Severity::from)
+        .or(blocking_policy)
+        .unwrap_or(Severity::Error);
+
+    if args.hook && report.has_blocking(threshold) {
         return Ok(1);
     }
     Ok(0)
