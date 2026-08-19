@@ -264,14 +264,24 @@ impl<'a> CheckContext<'a> {
     pub fn symbols(&self) -> SymbolTable {
         let mut table = SymbolTable::new();
         let config = Config::default();
+
+        // Changed files are added from their post-image parse, not from disk:
+        // staged content may differ from the working tree, and adding a file
+        // twice would double-count its call sites and suppress findings that
+        // depend on exact counts.
+        let changed: std::collections::HashSet<&Path> =
+            self.diffs.iter().map(|d| d.path.as_path()).collect();
+
         for (path, language) in source_files(self.repo_root, &config) {
+            let relative = path.strip_prefix(self.repo_root).unwrap_or(&path);
+            if changed.contains(relative) {
+                continue;
+            }
             if let Ok(source) = std::fs::read_to_string(&path) {
-                let relative = path.strip_prefix(self.repo_root).unwrap_or(&path);
                 table.add_file(relative, language, &source);
             }
         }
-        // Changed files may not be on disk (staged-only content), so overlay
-        // their post-image parses.
+
         for diff in self.diffs {
             if let Some(parsed) = self.parsed(&diff.path) {
                 table.add_parsed(&diff.path, parsed);
@@ -381,6 +391,18 @@ mod tests {
             .skipped
             .iter()
             .any(|s| s.check == "structural-clone"));
+    }
+
+    #[test]
+    fn changed_files_are_not_counted_twice_in_the_symbol_table() {
+        // Regression: adding a changed file from both disk and the diff
+        // overlay doubled its call-site counts, which silently suppressed
+        // every signal keyed on an exact count.
+        let src = "function fetchUser(id) { return getUser(id); }\nfetchUser(1);\n";
+        let diffs = vec![diff_of("src/a.js", src, Language::JavaScript)];
+        let authorship = AuthorshipMap::new();
+        let ctx = CheckContext::new(Path::new("."), &diffs, &authorship, None);
+        assert_eq!(ctx.symbols().call_site_count("fetchUser"), 1);
     }
 
     #[test]
