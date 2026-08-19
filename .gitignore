@@ -1,0 +1,29 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Node
+node_modules/
+dist/
+build/
+.vite/
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Dross's own index (per-repo, regenerable)
+.dross/
+
+# Tauri
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json

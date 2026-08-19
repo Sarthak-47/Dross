@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/dross-core",
+    "crates/dross-cli",
+    "crates/dross-adapters",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Sarthak Singh"]
+license = "Apache-2.0"
+repository = "https://github.com/Sarthak-47/Dross"
+
+[profile.release]
+lto = true
+strip = true
