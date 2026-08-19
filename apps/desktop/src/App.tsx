@@ -33,11 +33,14 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Outside a Tauri window (browser-based UI development) the event bridge
+    // is absent; degrade to no progress events rather than throwing.
     const unlisten = listen<IndexProgress>("dross://index-progress", (event) =>
       setProgress(event.payload),
-    );
+    ).catch(() => undefined);
+
     return () => {
-      void unlisten.then((fn) => fn());
+      void unlisten.then((fn) => fn?.());
     };
   }, []);
 

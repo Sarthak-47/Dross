@@ -4,6 +4,7 @@ members = [
     "crates/dross-core",
     "crates/dross-cli",
     "crates/dross-adapters",
+    "crates/dross-bench",
     "apps/desktop/src-tauri",
 ]
 

@@ -861,6 +861,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "dross-bench"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "dross-core",
+ "git2",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "dross-cli"
 version = "0.1.0"
 dependencies = [

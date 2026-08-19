@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use dross_adapters::{all_adapters, detect_all, AdapterStatus};
+use dross_adapters::{AdapterStatus, all_adapters, detect_all};
 use dross_core::config::Config;
 use dross_core::diff::{DiffTarget, Repo};
 use dross_core::engine::{Engine, Report};
@@ -36,7 +36,10 @@ pub fn open_repository(path: String, state: State<'_, AppState>) -> CmdResult<Re
 pub fn current_repository(state: State<'_, AppState>) -> CmdResult<RepositoryInfo> {
     let root = state.require_repo()?;
     let index = state.open_index().ok();
-    let indexed_functions = index.as_ref().and_then(|i| i.function_count().ok()).unwrap_or(0);
+    let indexed_functions = index
+        .as_ref()
+        .and_then(|i| i.function_count().ok())
+        .unwrap_or(0);
     let baseline_samples = index
         .as_ref()
         .and_then(|i| i.baseline_stats().ok().flatten())
@@ -95,10 +98,7 @@ pub struct IndexProgress {
 }
 
 #[tauri::command]
-pub fn build_index(
-    window: tauri::Window,
-    state: State<'_, AppState>,
-) -> CmdResult<RepositoryInfo> {
+pub fn build_index(window: tauri::Window, state: State<'_, AppState>) -> CmdResult<RepositoryInfo> {
     let root = state.require_repo()?;
     let index = state.open_index()?;
     let mut engine = Engine::new(state.config()).with_index(index);
@@ -230,7 +230,9 @@ pub fn file_source(path: String, state: State<'_, AppState>) -> CmdResult<String
         .map_err(|e| format!("cannot read {path}: {e}"))?;
     let canonical_root = root.canonicalize().map_err(|e| e.to_string())?;
     if !canonical.starts_with(&canonical_root) {
-        return Err(format!("refusing to read {path}: outside the open repository"));
+        return Err(format!(
+            "refusing to read {path}: outside the open repository"
+        ));
     }
     std::fs::read_to_string(&canonical).map_err(|e| e.to_string())
 }
