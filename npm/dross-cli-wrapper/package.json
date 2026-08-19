@@ -1,0 +1,37 @@
+{
+  "name": "dross",
+  "version": "0.1.0",
+  "description": "Catches what agent-generated diffs get wrong, before you commit. Deterministic, offline, no model calls.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Sarthak-47/Dross.git"
+  },
+  "homepage": "https://github.com/Sarthak-47/Dross#readme",
+  "bugs": {
+    "url": "https://github.com/Sarthak-47/Dross/issues"
+  },
+  "keywords": [
+    "code-review",
+    "static-analysis",
+    "pre-commit",
+    "ai-generated-code",
+    "claude-code",
+    "codex",
+    "cursor"
+  ],
+  "bin": {
+    "dross": "bin/dross.js"
+  },
+  "files": [
+    "bin/",
+    "scripts/",
+    "README.md"
+  ],
+  "scripts": {
+    "postinstall": "node scripts/install.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

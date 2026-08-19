@@ -30,3 +30,7 @@ Thumbs.db
 
 # Benchmark run artifacts (regenerable)
 .bench/
+
+# npm wrapper downloads the native binary at install time
+npm/dross-cli-wrapper/bin/dross
+npm/dross-cli-wrapper/bin/dross.exe
