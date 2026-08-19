@@ -74,55 +74,68 @@ impl SymbolTable {
     pub fn add_parsed(&mut self, path: &Path, parsed: &ParsedFile) {
         self.files_scanned += 1;
 
-        walk(parsed.root(), |node| {
-            match node.kind() {
-                "call_expression" | "call" | "new_expression" => {
-                    if let Some(name) = callee_name(parsed, node) {
-                        let (line, _) = parsed.line_span(node);
-                        self.call_sites.entry(name.clone()).or_default().push(CallSite {
+        walk(parsed.root(), |node| match node.kind() {
+            "call_expression" | "call" | "new_expression" => {
+                if let Some(name) = callee_name(parsed, node) {
+                    let (line, _) = parsed.line_span(node);
+                    self.call_sites
+                        .entry(name.clone())
+                        .or_default()
+                        .push(CallSite {
                             file: path.to_path_buf(),
                             line,
                         });
-                        self.call_arguments
-                            .entry(name)
-                            .or_default()
-                            .push(argument_texts(parsed, node));
-                    }
+                    self.call_arguments
+                        .entry(name)
+                        .or_default()
+                        .push(argument_texts(parsed, node));
                 }
-                "class_declaration" | "class" | "class_definition" | "interface_declaration"
-                | "abstract_class_declaration" => {
-                    let Some(name_node) = node.child_by_field_name("name") else {
-                        return;
-                    };
-                    let name = parsed.text(name_node).to_string();
-                    let (line, _) = parsed.line_span(node);
-                    let kind = match node.kind() {
-                        "interface_declaration" => DeclKind::Interface,
-                        "abstract_class_declaration" => DeclKind::AbstractClass,
-                        _ => DeclKind::Class,
-                    };
-                    self.declarations.entry(name.clone()).or_default().push(Declaration {
+            }
+            "class_declaration"
+            | "class"
+            | "class_definition"
+            | "interface_declaration"
+            | "abstract_class_declaration" => {
+                let Some(name_node) = node.child_by_field_name("name") else {
+                    return;
+                };
+                let name = parsed.text(name_node).to_string();
+                let (line, _) = parsed.line_span(node);
+                let kind = match node.kind() {
+                    "interface_declaration" => DeclKind::Interface,
+                    "abstract_class_declaration" => DeclKind::AbstractClass,
+                    _ => DeclKind::Class,
+                };
+                self.declarations
+                    .entry(name.clone())
+                    .or_default()
+                    .push(Declaration {
                         file: path.to_path_buf(),
                         line,
                         kind,
                     });
-                    for parent in supertypes(parsed, node) {
-                        self.subtypes.entry(parent).or_default().insert(name.clone());
-                    }
+                for parent in supertypes(parsed, node) {
+                    self.subtypes
+                        .entry(parent)
+                        .or_default()
+                        .insert(name.clone());
                 }
-                _ => {}
             }
+            _ => {}
         });
 
         // Record function declarations so we can tell "declared here" from
         // "called here" and detect duplicate names.
         for func in parsed.functions() {
             if let Some(name) = func.name.clone() {
-                self.declarations.entry(name).or_default().push(Declaration {
-                    file: path.to_path_buf(),
-                    line: func.start_line,
-                    kind: DeclKind::Function,
-                });
+                self.declarations
+                    .entry(name)
+                    .or_default()
+                    .push(Declaration {
+                        file: path.to_path_buf(),
+                        line: func.start_line,
+                        kind: DeclKind::Function,
+                    });
             }
         }
 
@@ -151,7 +164,10 @@ impl SymbolTable {
     }
 
     pub fn call_sites(&self, name: &str) -> &[CallSite] {
-        self.call_sites.get(name).map(|v| v.as_slice()).unwrap_or(&[])
+        self.call_sites
+            .get(name)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
 
     /// Call sites excluding the declaration's own file, which is how "called
@@ -168,7 +184,10 @@ impl SymbolTable {
     }
 
     pub fn declarations(&self, name: &str) -> &[Declaration] {
-        self.declarations.get(name).map(|v| v.as_slice()).unwrap_or(&[])
+        self.declarations
+            .get(name)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
 
     /// Distinct argument values seen at position `index` across all call sites.

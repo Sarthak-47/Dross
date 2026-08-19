@@ -6,10 +6,10 @@
 //! Manager-view agent flows the git hook cannot see.
 
 use anyhow::Result;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
-use crate::{read_json, write_json, Adapter, AdapterId, AdapterStatus, DROSS_MARKER};
+use crate::{Adapter, AdapterId, AdapterStatus, DROSS_MARKER, read_json, write_json};
 
 pub struct AntigravityAdapter;
 
@@ -81,7 +81,10 @@ impl Adapter for AntigravityAdapter {
         let hooks = hooks.as_object_mut().unwrap();
 
         for (event, command) in [
-            ("PostToolUse", "dross check --worktree --format json --quiet"),
+            (
+                "PostToolUse",
+                "dross check --worktree --format json --quiet",
+            ),
             ("PreToolUse", "dross check --staged --hook --if-git-commit"),
         ] {
             let list = hooks.entry(event).or_insert_with(|| json!([]));

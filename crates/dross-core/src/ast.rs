@@ -40,10 +40,7 @@ impl ParsedFile {
 
     /// 1-indexed line range for a node, matching how diffs and editors count.
     pub fn line_span(&self, node: Node<'_>) -> (usize, usize) {
-        (
-            node.start_position().row + 1,
-            node.end_position().row + 1,
-        )
+        (node.start_position().row + 1, node.end_position().row + 1)
     }
 
     /// Every function/method/closure definition in the file.
@@ -122,7 +119,8 @@ impl ParsedFile {
             || kind == "default_parameter"
             || self.text(node).contains('?')
             || self.text(node).contains('=');
-        let variadic = kind.contains("rest") || self.text(node).starts_with("...")
+        let variadic = kind.contains("rest")
+            || self.text(node).starts_with("...")
             || self.text(node).starts_with('*');
         let name = node
             .child_by_field_name("pattern")
@@ -296,7 +294,10 @@ mod tests {
         let file = ParsedFile::parse(Language::Python, src).unwrap();
         let funcs = file.functions();
         assert_eq!(funcs.len(), 2);
-        let m = funcs.iter().find(|f| f.name.as_deref() == Some("m")).unwrap();
+        let m = funcs
+            .iter()
+            .find(|f| f.name.as_deref() == Some("m"))
+            .unwrap();
         assert_eq!(m.enclosing_type.as_deref(), Some("A"));
         assert_eq!(m.qualified_name().as_deref(), Some("A.m"));
     }

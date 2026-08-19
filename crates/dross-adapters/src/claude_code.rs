@@ -4,10 +4,10 @@
 //! feedback, and PreToolUse on `git commit` gives a pre-flight gate.
 
 use anyhow::Result;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
-use crate::{read_json, write_json, Adapter, AdapterId, AdapterStatus, DROSS_MARKER};
+use crate::{Adapter, AdapterId, AdapterStatus, DROSS_MARKER, read_json, write_json};
 
 pub struct ClaudeCodeAdapter;
 
@@ -118,11 +118,7 @@ impl Adapter for ClaudeCodeAdapter {
 }
 
 /// Appends Dross's matchers to an event without disturbing existing ones.
-fn merge_matchers(
-    hooks: &mut serde_json::Map<String, Value>,
-    event: &str,
-    entries: Value,
-) {
+fn merge_matchers(hooks: &mut serde_json::Map<String, Value>, event: &str, entries: Value) {
     let list = hooks.entry(event).or_insert_with(|| json!([]));
     if !list.is_array() {
         *list = json!([]);
@@ -173,7 +169,10 @@ mod tests {
         let doc = read_json(&path);
         assert_eq!(doc["model"], "opus", "clobbered unrelated setting");
         let post = doc["hooks"]["PostToolUse"].as_array().unwrap();
-        assert!(post.iter().any(|e| e["matcher"] == "Bash"), "dropped user hook");
+        assert!(
+            post.iter().any(|e| e["matcher"] == "Bash"),
+            "dropped user hook"
+        );
         let dross_count = serde_json::to_string(&doc)
             .unwrap()
             .matches(DROSS_MARKER)
@@ -184,12 +183,18 @@ mod tests {
         ClaudeCodeAdapter.uninstall(&repo).unwrap();
         let after = read_json(&path);
         assert_eq!(after["model"], "opus");
-        assert!(!serde_json::to_string(&after).unwrap().contains(DROSS_MARKER));
-        assert!(after["hooks"]["PostToolUse"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|e| e["matcher"] == "Bash"));
+        assert!(
+            !serde_json::to_string(&after)
+                .unwrap()
+                .contains(DROSS_MARKER)
+        );
+        assert!(
+            after["hooks"]["PostToolUse"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|e| e["matcher"] == "Bash")
+        );
 
         std::fs::remove_dir_all(&repo).ok();
     }

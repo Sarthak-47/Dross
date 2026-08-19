@@ -47,7 +47,10 @@ impl Check for TautologicalTestCheck {
 }
 
 pub fn is_test_path(path: &std::path::Path) -> bool {
-    let s = path.to_string_lossy().replace('\\', "/").to_ascii_lowercase();
+    let s = path
+        .to_string_lossy()
+        .replace('\\', "/")
+        .to_ascii_lowercase();
     s.contains(".test.")
         || s.contains(".spec.")
         || s.contains("/tests/")
@@ -250,7 +253,10 @@ fn is_literal(s: &str) -> bool {
         || t.starts_with('"')
         || t.starts_with('\'')
         || t.starts_with('`')
-        || matches!(t, "true" | "false" | "null" | "None" | "True" | "False" | "undefined")
+        || matches!(
+            t,
+            "true" | "false" | "null" | "None" | "True" | "False" | "undefined"
+        )
         || ((t.starts_with('[') || t.starts_with('{')) && !t.contains('('))
 }
 

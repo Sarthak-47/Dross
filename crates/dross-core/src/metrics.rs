@@ -108,7 +108,9 @@ mod tests {
 
     #[test]
     fn branches_raise_cyclomatic_complexity() {
-        let m = metrics_of("function f(a) { if (a) { return 1; } for (const x of a) { g(x); } return 0; }");
+        let m = metrics_of(
+            "function f(a) { if (a) { return 1; } for (const x of a) { g(x); } return 0; }",
+        );
         assert!(m.cyclomatic >= 3, "got {}", m.cyclomatic);
     }
 }

@@ -134,10 +134,7 @@ pub fn tag_from_commit_message(message: &str) -> Option<(Tag, String)> {
             continue;
         }
         if let Some(agent) = AGENT_TRAILER_NEEDLES.iter().find(|n| lower.contains(*n)) {
-            return Some((
-                Tag::Confirmed,
-                format!("commit trailer names `{agent}`"),
-            ));
+            return Some((Tag::Confirmed, format!("commit trailer names `{agent}`")));
         }
     }
     None

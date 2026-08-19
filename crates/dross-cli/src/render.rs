@@ -83,9 +83,7 @@ fn authorship_note(confidence: AuthorshipConfidence) -> Option<String> {
         AuthorshipConfidence::Heuristic => {
             Some("authorship: agent-written (heuristic — burst-write timing)".to_string())
         }
-        AuthorshipConfidence::UserOverride => {
-            Some("authorship: manually tagged".to_string())
-        }
+        AuthorshipConfidence::UserOverride => Some("authorship: manually tagged".to_string()),
         AuthorshipConfidence::Unknown => None,
     }
 }
@@ -138,7 +136,11 @@ pub fn connections(statuses: &[AdapterStatus]) {
             println!("                {}", path.display().to_string().dimmed());
         }
         for limitation in &status.limitations {
-            println!("                {} {}", "note:".yellow(), limitation.dimmed());
+            println!(
+                "                {} {}",
+                "note:".yellow(),
+                limitation.dimmed()
+            );
         }
         println!();
     }

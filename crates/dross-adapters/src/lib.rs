@@ -66,10 +66,7 @@ pub fn all_adapters() -> Vec<Box<dyn Adapter>> {
 }
 
 pub fn detect_all(repo_root: &Path) -> Vec<AdapterStatus> {
-    all_adapters()
-        .iter()
-        .map(|a| a.status(repo_root))
-        .collect()
+    all_adapters().iter().map(|a| a.status(repo_root)).collect()
 }
 
 /// The user's home directory, where the agent tools keep global config.

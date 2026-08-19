@@ -4,8 +4,8 @@
 //! this repo", not general copy-paste reporting. Only new/changed functions
 //! are queried against the index, and only cross-file matches are reported.
 
-use crate::fingerprint::fingerprint;
 use crate::finding::{CheckId, Finding, Severity, SourceSpan};
+use crate::fingerprint::fingerprint;
 
 use super::{Check, CheckContext};
 

@@ -111,11 +111,13 @@ fn forwarding_target(file: &ParsedFile, func: Node<'_>) -> Option<String> {
     let expr = match stmt.kind() {
         "return_statement" => {
             let mut c = stmt.walk();
-            stmt.named_children(&mut c).find(|n| n.kind() != "comment")?
+            stmt.named_children(&mut c)
+                .find(|n| n.kind() != "comment")?
         }
         "expression_statement" => {
             let mut c = stmt.walk();
-            stmt.named_children(&mut c).find(|n| n.kind() != "comment")?
+            stmt.named_children(&mut c)
+                .find(|n| n.kind() != "comment")?
         }
         _ => return None,
     };
@@ -199,9 +201,11 @@ fn single_implementation_abstractions(
 
 fn looks_like_test_double(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
-    ["mock", "fake", "stub", "spy", "dummy", "test", "inmemory", "noop"]
-        .iter()
-        .any(|n| lower.contains(n))
+    [
+        "mock", "fake", "stub", "spy", "dummy", "test", "inmemory", "noop",
+    ]
+    .iter()
+    .any(|n| lower.contains(n))
 }
 
 // --- Signal: overkill design pattern -------------------------------------
@@ -249,9 +253,11 @@ fn overkill_patterns(parsed: &ParsedFile, file: &crate::diff::FileDiff) -> Vec<F
 
 fn is_factory_name(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
-    ["factory", "create", "make", "build", "resolve", "strategy", "provider"]
-        .iter()
-        .any(|n| lower.contains(n))
+    [
+        "factory", "create", "make", "build", "resolve", "strategy", "provider",
+    ]
+    .iter()
+    .any(|n| lower.contains(n))
 }
 
 /// Counts the distinct values a dispatcher can return: switch cases, if/elif

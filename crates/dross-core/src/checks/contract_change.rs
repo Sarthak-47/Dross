@@ -126,7 +126,10 @@ fn compare(
                     "parameter-type-changed",
                     Severity::Warning,
                     span.clone(),
-                    format!("`{name}` parameter #{} changed type: `{ot}` -> `{nt}`", i + 1),
+                    format!(
+                        "`{name}` parameter #{} changed type: `{ot}` -> `{nt}`",
+                        i + 1
+                    ),
                     format!(
                         "Parameter `{}` was `{ot}` and is now `{nt}`. This is invisible at \
                          call sites until they are type-checked.",
@@ -159,20 +162,20 @@ fn compare(
     }
 
     // Return type change.
-    if old.return_type != new.return_type {
-        if let (Some(ot), Some(nt)) = (&old.return_type, &new.return_type) {
-            findings.push(Finding::new(
-                CheckId::ContractChange,
-                "return-type-changed",
-                Severity::Warning,
-                span.clone(),
-                format!("`{name}` return type changed: `{ot}` -> `{nt}`"),
-                format!(
-                    "Callers written against `{ot}` may mishandle `{nt}` without any \
+    if old.return_type != new.return_type
+        && let (Some(ot), Some(nt)) = (&old.return_type, &new.return_type)
+    {
+        findings.push(Finding::new(
+            CheckId::ContractChange,
+            "return-type-changed",
+            Severity::Warning,
+            span.clone(),
+            format!("`{name}` return type changed: `{ot}` -> `{nt}`"),
+            format!(
+                "Callers written against `{ot}` may mishandle `{nt}` without any \
                      diff-visible error at the call site."
-                ),
-            ));
-        }
+            ),
+        ));
     }
 
     // Sync -> async is a silent breaking change for every non-awaiting caller.

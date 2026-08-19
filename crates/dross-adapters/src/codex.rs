@@ -9,10 +9,10 @@
 //!      instead of on edits directly.
 
 use anyhow::Result;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
-use crate::{read_json, write_json, Adapter, AdapterId, AdapterStatus, DROSS_MARKER};
+use crate::{Adapter, AdapterId, AdapterStatus, DROSS_MARKER, read_json, write_json};
 
 pub struct CodexAdapter;
 
@@ -103,12 +103,12 @@ impl Adapter for CodexAdapter {
             return Ok(());
         }
         let mut doc = read_json(&path);
-        if let Some(hooks) = doc.get_mut("hooks").and_then(|h| h.as_object_mut()) {
-            if let Some(list) = hooks.get_mut("PostToolUse").and_then(|v| v.as_array_mut()) {
-                strip_dross(list);
-                if list.is_empty() {
-                    hooks.remove("PostToolUse");
-                }
+        if let Some(hooks) = doc.get_mut("hooks").and_then(|h| h.as_object_mut())
+            && let Some(list) = hooks.get_mut("PostToolUse").and_then(|v| v.as_array_mut())
+        {
+            strip_dross(list);
+            if list.is_empty() {
+                hooks.remove("PostToolUse");
             }
         }
         write_json(&path, &doc)
@@ -146,7 +146,10 @@ mod tests {
         CodexAdapter.install(&repo).unwrap();
 
         let doc = read_json(&CodexAdapter::hooks_path(&repo));
-        let count = serde_json::to_string(&doc).unwrap().matches(DROSS_MARKER).count();
+        let count = serde_json::to_string(&doc)
+            .unwrap()
+            .matches(DROSS_MARKER)
+            .count();
         assert_eq!(count, 1);
 
         std::fs::remove_dir_all(&repo).ok();

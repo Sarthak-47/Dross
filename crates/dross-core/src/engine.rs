@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 use crate::authorship::AuthorshipMap;
-use crate::checks::{all_checks, annotate_authorship, CheckContext};
+use crate::checks::{CheckContext, all_checks, annotate_authorship};
 use crate::config::Config;
 use crate::diff::{DiffTarget, FileDiff, Repo};
 use crate::finding::{Finding, Severity};
@@ -35,7 +35,10 @@ impl Report {
     }
 
     pub fn count_by_severity(&self, severity: Severity) -> usize {
-        self.findings.iter().filter(|f| f.severity == severity).count()
+        self.findings
+            .iter()
+            .filter(|f| f.severity == severity)
+            .count()
     }
 
     /// One-line summary, the CLI's default output (spec section 4).
@@ -133,11 +136,7 @@ impl Engine {
             // Spec section 5: untagged hunks get the lighter pass. Checks that
             // only make sense for agent code drop their human-code findings.
             if !check.applies_to_human_code() {
-                produced.retain(|f| {
-                    authorship
-                        .tag_for(&f.span.file, f.span.start_line)
-                        .is_ai()
-                });
+                produced.retain(|f| authorship.tag_for(&f.span.file, f.span.start_line).is_ai());
             }
             findings.extend(produced);
         }
@@ -186,7 +185,11 @@ impl Engine {
 
     /// Replays the repo's own history to build the complexity baseline that
     /// the over-engineering outlier signal scores against (spec 5a).
-    pub fn build_complexity_baseline(&mut self, repo_root: &Path, max_commits: usize) -> Result<usize> {
+    pub fn build_complexity_baseline(
+        &mut self,
+        repo_root: &Path,
+        max_commits: usize,
+    ) -> Result<usize> {
         let repo = Repo::open(repo_root)?;
         let mut walker = repo.inner().revwalk()?;
         walker.push_head()?;
@@ -321,10 +324,12 @@ mod tests {
         let report = engine
             .analyze_diffs(Path::new("."), &diffs, &AuthorshipMap::new())
             .unwrap();
-        assert!(report
-            .findings
-            .iter()
-            .any(|f| f.signal == "empty-catch-body"));
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|f| f.signal == "empty-catch-body")
+        );
         assert!(report.risk_score > 0);
     }
 
@@ -349,10 +354,12 @@ mod tests {
         let report = engine
             .analyze_diffs(Path::new("."), &diffs, &AuthorshipMap::new())
             .unwrap();
-        assert!(!report
-            .findings
-            .iter()
-            .any(|f| f.check == crate::finding::CheckId::TautologicalTest));
+        assert!(
+            !report
+                .findings
+                .iter()
+                .any(|f| f.check == crate::finding::CheckId::TautologicalTest)
+        );
     }
 
     #[test]
@@ -374,23 +381,26 @@ mod tests {
         let report = engine
             .analyze_diffs(Path::new("."), &diffs, &authorship)
             .unwrap();
-        assert!(report
-            .findings
-            .iter()
-            .any(|f| f.check == crate::finding::CheckId::TautologicalTest));
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|f| f.check == crate::finding::CheckId::TautologicalTest)
+        );
     }
 
     #[test]
     fn clone_check_is_reported_as_skipped_without_an_index() {
         let engine = Engine::new(Config::default());
-        let diffs = vec![diff_of("src/a.js", "function f(){return 1;}", Language::JavaScript)];
+        let diffs = vec![diff_of(
+            "src/a.js",
+            "function f(){return 1;}",
+            Language::JavaScript,
+        )];
         let report = engine
             .analyze_diffs(Path::new("."), &diffs, &AuthorshipMap::new())
             .unwrap();
-        assert!(report
-            .skipped
-            .iter()
-            .any(|s| s.check == "structural-clone"));
+        assert!(report.skipped.iter().any(|s| s.check == "structural-clone"));
     }
 
     #[test]

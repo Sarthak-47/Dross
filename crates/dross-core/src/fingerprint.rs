@@ -58,8 +58,11 @@ pub fn normalized_tokens(file: &ParsedFile, func: &FunctionDef) -> Vec<String> {
         }
         let kind = n.kind();
         let token = match kind {
-            "identifier" | "property_identifier" | "shorthand_property_identifier"
-            | "type_identifier" | "field_identifier" => "@id".to_string(),
+            "identifier"
+            | "property_identifier"
+            | "shorthand_property_identifier"
+            | "type_identifier"
+            | "field_identifier" => "@id".to_string(),
             "string" | "template_string" | "string_fragment" => "@str".to_string(),
             "number" | "integer" | "float" => "@num".to_string(),
             "true" | "false" | "null" | "none" | "undefined" => "@lit".to_string(),

@@ -215,7 +215,7 @@ fn cmd_index(args: &IndexArgs, repo_root: &Path) -> Result<i32> {
     println!("{} building fingerprint index…", "dross:".cyan().bold());
     let mut last_pct = 0;
     let indexed = engine.build_index(repo_root, |done, total| {
-        let pct = if total == 0 { 100 } else { done * 100 / total };
+        let pct = (done * 100).checked_div(total).unwrap_or(100);
         if pct >= last_pct + 10 {
             last_pct = pct;
             println!("  {pct:>3}%  ({done}/{total} files)");
@@ -224,7 +224,10 @@ fn cmd_index(args: &IndexArgs, repo_root: &Path) -> Result<i32> {
     println!("  indexed {indexed} functions");
 
     if args.baseline {
-        println!("{} replaying history for complexity baseline…", "dross:".cyan().bold());
+        println!(
+            "{} replaying history for complexity baseline…",
+            "dross:".cyan().bold()
+        );
         let samples = engine.build_complexity_baseline(repo_root, args.baseline_commits)?;
         println!("  recorded {samples} baseline samples");
         if samples < 30 {

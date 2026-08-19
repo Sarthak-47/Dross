@@ -115,10 +115,9 @@ impl Repo {
                 self.inner
                     .diff_tree_to_index(head_tree.as_ref(), None, Some(&mut opts))?
             }
-            DiffTarget::WorktreeVsHead => {
-                self.inner
-                    .diff_tree_to_workdir_with_index(head_tree.as_ref(), Some(&mut opts))?
-            }
+            DiffTarget::WorktreeVsHead => self
+                .inner
+                .diff_tree_to_workdir_with_index(head_tree.as_ref(), Some(&mut opts))?,
         };
 
         self.collect(diff, target)

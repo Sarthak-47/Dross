@@ -5,12 +5,12 @@
 //! over-engineering complexity baseline read from it.
 
 use anyhow::{Context, Result};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 use crate::ast::ParsedFile;
-use crate::fingerprint::{fingerprint, Fingerprint, NUM_HASHES};
+use crate::fingerprint::{Fingerprint, NUM_HASHES, fingerprint};
 use crate::lang::Language;
 
 /// Bumped whenever fingerprinting or normalization changes, so a stale index
@@ -110,9 +110,11 @@ impl FingerprintIndex {
 
         let existing: Option<String> = self
             .conn
-            .query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'schema_version'",
+                [],
+                |r| r.get(0),
+            )
             .optional()?;
 
         match existing {
@@ -196,7 +198,7 @@ impl FingerprintIndex {
             for (band_index, band_hash) in band_hashes(&fp.signature) {
                 tx.execute(
                     "INSERT INTO bands(function_id, band_index, band_hash) VALUES (?1, ?2, ?3)",
-                    params![id, band_index as i64, band_hash as i64],
+                    params![id, band_index as i64, { band_hash }],
                 )?;
             }
             count += 1;
@@ -226,11 +228,11 @@ impl FingerprintIndex {
     ) -> Result<Vec<(IndexedFunction, f64)>> {
         let mut candidate_ids: Vec<i64> = Vec::new();
         {
-            let mut stmt = self
-                .conn
-                .prepare("SELECT DISTINCT function_id FROM bands WHERE band_index = ?1 AND band_hash = ?2")?;
+            let mut stmt = self.conn.prepare(
+                "SELECT DISTINCT function_id FROM bands WHERE band_index = ?1 AND band_hash = ?2",
+            )?;
             for (band_index, band_hash) in band_hashes(&fp.signature) {
-                let rows = stmt.query_map(params![band_index as i64, band_hash as i64], |r| {
+                let rows = stmt.query_map(params![band_index as i64, { band_hash }], |r| {
                     r.get::<_, i64>(0)
                 })?;
                 for id in rows {
@@ -246,10 +248,10 @@ impl FingerprintIndex {
             let Some(func) = self.load_function(id)? else {
                 continue;
             };
-            if let Some(exclude) = exclude_path {
-                if func.path == exclude {
-                    continue;
-                }
+            if let Some(exclude) = exclude_path
+                && func.path == exclude
+            {
+                continue;
             }
             let sim = fp.similarity(&func.fingerprint);
             if sim >= threshold {
@@ -488,7 +490,9 @@ mod tests {
     fn baseline_reports_stats_once_warm() {
         let index = FingerprintIndex::open_in_memory().unwrap();
         for i in 0..40 {
-            index.record_baseline_sample("abc", 10, 20 + (i % 3)).unwrap();
+            index
+                .record_baseline_sample("abc", 10, 20 + (i % 3))
+                .unwrap();
         }
         let stats = index.baseline_stats().unwrap().unwrap();
         assert_eq!(stats.sample_count, 40);

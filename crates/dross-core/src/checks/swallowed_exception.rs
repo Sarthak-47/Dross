@@ -9,7 +9,7 @@ use crate::ast::ParsedFile;
 use crate::finding::{CheckId, Finding, Severity, SourceSpan};
 use crate::lang::Language;
 
-use super::{CheckContext, Check};
+use super::{Check, CheckContext};
 
 pub struct SwallowedExceptionCheck;
 
@@ -144,20 +144,20 @@ fn evaluate(file: &ParsedFile, handler: &CatchHandler<'_>, path: &std::path::Pat
     }
 
     // Signal 4: silent optimistic return.
-    if let Some(literal) = stats.returns_literal.as_ref() {
-        if !stats.surfaces_error() {
-            findings.push(Finding::new(
-                CheckId::SwallowedException,
-                "silent-optimistic-return",
-                Severity::Warning,
-                span.clone(),
-                "Failure path returns a default value instead of propagating the error",
-                format!(
-                    "The handler returns `{literal}` on the failure path with no \
+    if let Some(literal) = stats.returns_literal.as_ref()
+        && !stats.surfaces_error()
+    {
+        findings.push(Finding::new(
+            CheckId::SwallowedException,
+            "silent-optimistic-return",
+            Severity::Warning,
+            span.clone(),
+            "Failure path returns a default value instead of propagating the error",
+            format!(
+                "The handler returns `{literal}` on the failure path with no \
                      caller-visible signal that the result is degraded."
-                ),
-            ));
-        }
+            ),
+        ));
     }
 
     // Signal 3: overly broad catch type.
@@ -269,14 +269,13 @@ fn returned_value(file: &ParsedFile, node: Node<'_>) -> Option<String> {
 }
 
 fn is_noop_statement(file: &ParsedFile, node: Node<'_>) -> bool {
-    matches!(node.kind(), "pass_statement" | "empty_statement")
-        || file.text(node).trim().is_empty()
+    matches!(node.kind(), "pass_statement" | "empty_statement") || file.text(node).trim().is_empty()
 }
 
 fn looks_like_logging(text: &str) -> bool {
     const NEEDLES: [&str; 10] = [
-        "console.", "logger.", "log.", "logging.", "print(", "warn(", "error(", "debug(",
-        "info(", "trace(",
+        "console.", "logger.", "log.", "logging.", "print(", "warn(", "error(", "debug(", "info(",
+        "trace(",
     ];
     let head = text.split('(').next().unwrap_or(text).to_ascii_lowercase();
     NEEDLES.iter().any(|n| {
@@ -302,14 +301,27 @@ fn is_error_shaped(text: &str) -> bool {
 fn is_default_literal(text: &str) -> bool {
     matches!(
         text.trim(),
-        "null" | "None" | "undefined" | "0" | "-1" | "\"\"" | "''" | "[]" | "{}" | "false" | "False"
+        "null"
+            | "None"
+            | "undefined"
+            | "0"
+            | "-1"
+            | "\"\""
+            | "''"
+            | "[]"
+            | "{}"
+            | "false"
+            | "False"
     )
 }
 
 fn is_broad_type(language: Language, caught: &str) -> bool {
     let t = caught.trim();
     match language {
-        Language::Python => matches!(t, "Exception" | "BaseException" | "(Exception)" | "(BaseException)"),
+        Language::Python => matches!(
+            t,
+            "Exception" | "BaseException" | "(Exception)" | "(BaseException)"
+        ),
         _ => matches!(t, "Error" | "any" | "unknown" | "Exception"),
     }
 }
@@ -346,7 +358,10 @@ mod tests {
 
     #[test]
     fn flags_python_except_pass() {
-        let f = run_on(Language::Python, "try:\n    g()\nexcept ValueError:\n    pass\n");
+        let f = run_on(
+            Language::Python,
+            "try:\n    g()\nexcept ValueError:\n    pass\n",
+        );
         assert_eq!(signals(&f), vec!["empty-catch-body"]);
     }
 
