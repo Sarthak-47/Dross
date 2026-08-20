@@ -99,6 +99,21 @@ fn default_disabled_signals() -> HashSet<String> {
         // not been re-validated, and a signal that fired on "chore: format" at
         // 8.4 sigma has to earn its way back on.
         "complexity-to-problem-size-outlier",
+        // 8.3%, 8.3%, then 0% across three rounds and three fix attempts.
+        // Each fix cut the volume without moving the false-positive rate,
+        // because in a mature codebase structurally identical functions are
+        // almost always deliberate parallel structure: Flask's `template_*`
+        // decorator family, per-locale formatters, adapters implementing one
+        // interface twice. The seeded corpus shows the check *can* find a
+        // renamed duplicate; real repositories are mostly full of intentional
+        // twins, and it cannot tell the two apart.
+        "near-duplicate-function",
+        // 0% in three separate rounds. Returning a default on failure is the
+        // documented contract far more often than it is a hidden failure —
+        // predicates, `get_or_none` lookups, best-effort serialisation,
+        // deliberately ignored malformed input. Distinguishing a contract from
+        // a concealment needs intent the AST does not carry.
+        "silent-optimistic-return",
     ]
     .iter()
     .map(|s| s.to_string())
@@ -153,6 +168,8 @@ mod tests {
             "overkill-design-pattern",
             "single-implementation-abstraction",
             "complexity-to-problem-size-outlier",
+            "near-duplicate-function",
+            "silent-optimistic-return",
         ] {
             assert!(!c.is_signal_enabled(signal), "{signal} should default off");
         }

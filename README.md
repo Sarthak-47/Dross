@@ -120,28 +120,37 @@ npm run app:build --prefix apps/desktop
 
 ## Benchmarks
 
-Numbers are the reason to trust a tool that claims to catch things, so these
-are measured rather than asserted, and published as they came out.
+Measured, not asserted, and published as they came out.
 
-**Precision, 22 open-source JS/TS and Python repositories, 204 labeled
-findings:** 50.5% overall (95% CI 44–57%), up from 32.4% before the benchmark
-exposed what was wrong. Per check: contract-change 70.2%, swallowed-exception
-37.5%, over-engineering 41.7%, structural-clone 8.3%.
+**22 open-source JS/TS and Python repositories, 157 labeled findings:**
 
-Full method, both rounds, and every labeled verdict are in
-[docs/BENCHMARK_RESULTS.md](docs/BENCHMARK_RESULTS.md). The labeling was a
-single pass by the same family of system this tool is built to check — a real
-conflict of interest, and the reason these are an internal signal rather than a
-validated benchmark until a human labels an independent sample.
+| | |
+|---|---|
+| Precision, default configuration | **87.2%** |
+| Precision, every signal enabled | 73.9% (95% CI 66–80%) |
+| Starting point, before the benchmark exposed what was wrong | 32.4% |
 
-Three signals measured 0% and ship disabled by default. They are still
-implemented and can be switched on per repository; a pre-commit check is
-uninstalled as a whole, so one noisy signal takes the accurate ones with it.
+Per check, with everything enabled: contract-change 98.7%, over-engineering
+73.7%, swallowed-exception 52.1%, structural-clone 0%.
 
-**Recall** is measured against the seeded corpus in `fixtures/seeded`, not the
-open-source run: a label pass over emitted findings contains no false negatives
-by construction. Every seeded positive is caught and no seeded negative is
-flagged, verified in CI.
+Five signals measured badly enough to ship **disabled**, including clone
+detection — in a mature codebase, structurally identical functions are almost
+always deliberate parallel structure, and the check could not tell that from
+reinvention. They stay implemented and switch on per repository. The reasoning
+and the numbers behind each are in
+[docs/BENCHMARK_RESULTS.md](docs/BENCHMARK_RESULTS.md).
+
+**Recall** is measured against the seeded corpus in `fixtures/seeded`, not this
+run: a label pass over emitted findings contains no false negatives by
+construction. Every seeded positive is caught and no seeded negative flagged,
+verified in CI with all signals enabled.
+
+**Two limits worth knowing before you trust these.** The labeling was a single
+pass by the same family of system this tool is built to check — a real conflict
+of interest, which is why the harness computes Cohen's kappa against a second
+label set. And only 81 findings came from commits carrying an agent trailer, so
+this measures Dross on ordinary repositories rather than on the
+agent-generated diffs it targets.
 
 Reproduce it:
 
@@ -150,17 +159,8 @@ cargo run -p dross-bench -- run --repo-dir .bench/repos
 ```
 
 ```bash
-cargo run -p dross-bench -- label --per-signal 12
+cargo run -p dross-bench -- report --labels docs/benchmark-labels-final.jsonl
 ```
-
-```bash
-cargo run -p dross-bench -- report --labels .bench/worksheet.jsonl
-```
-
-Sampling is stratified per signal, because the rare signals are the ones whose
-precision is least certain. Results carry Wilson intervals, and two label
-passes produce a Cohen's kappa — a bare percentage from a small sample invites
-over-reading.
 
 ## Known limitations
 

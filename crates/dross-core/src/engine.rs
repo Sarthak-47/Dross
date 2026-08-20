@@ -471,6 +471,9 @@ mod tests {
         // An impossible threshold must silence the check entirely.
         let strict = Config {
             clone_threshold: 1.01,
+            // The signal ships disabled; this test is about whether the
+            // configured threshold is honoured, so it is enabled explicitly.
+            disabled_signals: Default::default(),
             ..Config::default()
         };
         let strict_report = Engine::new(strict)
@@ -488,6 +491,7 @@ mod tests {
         // A permissive threshold must surface the near-duplicate.
         let loose = Config {
             clone_threshold: 0.1,
+            disabled_signals: Default::default(),
             ..Config::default()
         };
         let loose_report = Engine::new(loose)

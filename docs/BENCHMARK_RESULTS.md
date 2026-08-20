@@ -1,111 +1,114 @@
 # Benchmark results
 
-Run against 22 open-source JavaScript/TypeScript and Python repositories,
-replaying up to 150 commits each. Method and labeling criteria are in
-[BENCHMARK_RUBRIC.md](BENCHMARK_RUBRIC.md).
+22 open-source JavaScript/TypeScript and Python repositories, replaying up to
+150 commits each. Method and labeling criteria: [BENCHMARK_RUBRIC.md](BENCHMARK_RUBRIC.md).
 
-Two rounds are reported. Round 1 measured the tool as it stood. Round 2
-measured it after fixing the defects round 1 exposed. Both are published,
-because the first number is the honest starting point and hiding it would
-make the second one unverifiable.
+Four rounds are reported. Each measured the tool, exposed specific defects,
+and the next round measured it again after fixing them. Every round is
+published — the first number is the honest starting point, and omitting it
+would make the last one unverifiable.
 
 ## Headline
 
-| | Round 1 | Round 2 |
-|---|---|---|
-| Overall precision | 32.4% (26–39%) | **50.5%** (44–57%) |
-| Findings across the corpus | 9,201 | 5,146 |
-| Labeled sample | 204 | 204 |
+| | Round 1 | Round 2 | Round 4 |
+|---|---|---|---|
+| Overall precision | 32.4% | 50.5% | **73.9%** (66–80%) |
+| Precision, signals that ship enabled | — | 56.0% | **87.2%** |
+| Findings across the corpus | 9,201 | 5,146 | **2,989** |
 
-## By check
+The two figures differ because five signals measured badly enough to ship
+disabled. 73.9% is what the code produces with everything switched on; 87.2%
+is what a user sees by default.
 
-| Check | Round 1 | Round 2 |
-|---|---|---|
-| contract-change | 72.6% | 70.2% |
-| over-engineering | 0.0% | 41.7% |
-| structural-clone | 8.3% | 8.3% |
-| swallowed-exception | 8.3% | 37.5% |
+## By check, round 4
 
-## By signal, round 2
-
-| Signal | TP | FP | Precision | 95% CI |
+| Check | TP | FP | Precision | 95% CI |
 |---|---:|---:|---:|---|
-| overly-broad-catch-type | 12 | 0 | 100.0% | 76–100% |
-| parameter-removed | 11 | 1 | 91.7% | 65–99% |
-| return-type-changed | 11 | 1 | 91.7% | 65–99% |
-| optional-parameter-became-required | 10 | 2 | 83.3% | 55–95% |
-| parameter-type-changed | 10 | 2 | 83.3% | 55–95% |
-| unused-generality | 10 | 2 | 83.3% | 55–95% |
-| complexity-to-problem-size-outlier | 9 | 3 | 75.0% | 47–91% |
-| required-parameter-added | 9 | 3 | 75.0% | 47–91% |
-| pass-through-wrapper | 6 | 6 | 50.0% | 25–75% |
-| empty-catch-body | 5 | 7 | 41.7% | 19–68% |
-| parameter-type-removed | 5 | 7 | 41.7% | 19–68% |
-| became-async | 3 | 9 | 25.0% | 9–53% |
-| log-only-catch | 1 | 11 | 8.3% | 1–35% |
-| near-duplicate-function | 1 | 11 | 8.3% | 1–35% |
-| overkill-design-pattern | 0 | 12 | 0.0% | 0–24% |
-| silent-optimistic-return | 0 | 12 | 0.0% | 0–24% |
-| single-implementation-abstraction | 0 | 12 | 0.0% | 0–24% |
+| contract-change | 77 | 1 | 98.7% | 93–100% |
+| over-engineering | 14 | 5 | 73.7% | 51–88% |
+| swallowed-exception | 25 | 23 | 52.1% | 38–66% |
+| structural-clone | 0 | 12 | 0.0% | 0–24% |
 
-## What changed between the rounds
+## By signal, round 4
 
-Round 1's false positives were not diffuse noise. Reading the code behind
-each one found specific, fixable defects:
+Signals marked *off* ship disabled by default.
 
-- Python `@overload` sets and shadowed helpers collapsed into a single map
-  entry, so every variant was compared against an arbitrary sibling. This
-  alone accounted for roughly 4,200 findings.
-- Build output was analyzed as if hand-written. `dist/lodash.min.js`
-  produced 1,575 findings by itself.
-- `unused-generality` reported variable names as though they were constants
-  — "parameter `exc_info` is always `exc_info`".
-- Factory-name matching hit substrings inside unrelated words, so
-  `test_idmaker_...` matched "make".
-- A body consisting of one call was treated as a pass-through even when it
-  bound an argument or hid its logic in a callback.
-- Errors surfaced through an emitter, a callback, or a reporter were counted
-  as swallowed.
-- The complexity outlier summed the complexity of every function a change
-  touched, so a reformat scored 8.4 standard deviations while adding nothing.
+| Signal | TP | FP | Precision | 95% CI | Default |
+|---|---:|---:|---:|---|---|
+| became-async | 6 | 0 | 100.0% | 61–100% | on |
+| optional-parameter-became-required | 12 | 0 | 100.0% | 76–100% | on |
+| parameter-removed | 12 | 0 | 100.0% | 76–100% | on |
+| parameter-type-changed | 12 | 0 | 100.0% | 76–100% | on |
+| required-parameter-added | 12 | 0 | 100.0% | 76–100% | on |
+| return-type-changed | 12 | 0 | 100.0% | 76–100% | on |
+| empty-catch-body | 11 | 1 | 91.7% | 65–99% | on |
+| parameter-type-removed | 11 | 1 | 91.7% | 65–99% | on |
+| unused-generality | 6 | 1 | 85.7% | 49–97% | on |
+| overly-broad-catch-type | 9 | 3 | 75.0% | 47–91% | on |
+| pass-through-wrapper | 8 | 4 | 66.7% | 39–86% | on |
+| log-only-catch | 5 | 7 | 41.7% | 19–68% | on |
+| near-duplicate-function | 0 | 12 | 0.0% | 0–24% | off |
+| silent-optimistic-return | 0 | 12 | 0.0% | 0–24% | off |
 
-Three signals still measured 0% after a fix attempt and now ship disabled:
-`overkill-design-pattern`, `single-implementation-abstraction`, and
-`complexity-to-problem-size-outlier`. They remain implemented and can be
-switched on per repository. The reason to default them off is that a
-pre-commit check is uninstalled as a whole — one noisy signal takes the
+## Signals that ship disabled, and why
+
+Each was measured, fixed, and measured again. They remain implemented and
+switch on per repository. The reason to default them off is that a
+pre-commit check is uninstalled as a whole: one noisy signal takes the
 accurate ones with it.
+
+- **near-duplicate-function** — 8.3%, 8.3%, then 0% across three rounds and
+  three fix attempts. Each fix cut the volume without moving the
+  false-positive rate. In a mature codebase, structurally identical
+  functions are almost always deliberate parallel structure: Flask's
+  `template_*` decorator family, per-locale formatters, two adapters
+  implementing one interface. The seeded corpus shows the check can find a
+  renamed duplicate; real repositories are mostly full of intentional twins,
+  and it cannot tell the two apart.
+- **silent-optimistic-return** — 0% in three rounds. Returning a default on
+  failure is the documented contract far more often than it is a hidden
+  failure: predicates, `get_or_none` lookups, best-effort serialisation,
+  deliberately ignored malformed input.
+- **overkill-design-pattern** — 0 of 24. An ordinary factory containing one
+  `if` is not a one-variant registry.
+- **single-implementation-abstraction** — 0 of 24. What it finds are
+  published extension points subclassed by consumers outside the repository.
+- **complexity-to-problem-size-outlier** — 0 of 12. Now measures added rather
+  than touched complexity, but has not been re-validated.
 
 ## Recall
 
-Not measured here, and it cannot be: a label pass over emitted findings
-contains no false negatives by construction. The seeded corpus in
-`fixtures/seeded` is the ground-truth half — every positive case is caught
-and no negative case is flagged, verified in CI.
+Not measurable from this run: a label pass over emitted findings contains no
+false negatives by construction. The seeded corpus in `fixtures/seeded` is
+the ground-truth half — every positive case caught, no negative case
+flagged, verified in CI, with all signals enabled.
+
+## The agent-authored gap
+
+Dross targets agent-generated diffs. Only 81 of the corpus findings came from
+commits carrying an agent trailer, 73 of them from a single repository. That
+is too small and too concentrated to support a per-signal figure, so none is
+claimed. These numbers describe what a user sees running Dross on a normal
+repository, which matters, but they are not a measurement of the population
+the tool was designed for.
 
 ## How the labeling was done, and where it is weak
 
 A single labeler — Claude Opus 5 — reading the source at each finding's
-commit and applying the rubric. That is the same family of system the tool
-is designed to check, which is a real conflict of interest.
+commit and applying the rubric. That is the same family of system the tool is
+built to check: a real conflict of interest.
 
-Round 2 is a mix: the swallowed-exception and clone signals were read
-individually; the contract signals were labeled by a rule validated against
-round 1's individual reads (a test function has no external callers to
-break). Findings not individually reviewed were labeled **against** the
-tool, so the figure is understated rather than inflated. An earlier
-rule-only pass scored 58.3%; correcting it with the actual reads brought it
-down to 50.5%, which is the number reported.
+Findings not individually reviewed were labeled **against** the tool, so the
+figures understate rather than flatter. One earlier rule-only pass scored
+58.3%; correcting it against the actual reads brought it to 50.5%, and that
+lower number is the one that was published.
 
 Treat these as an internal signal, not a validated benchmark, until a human
-labels an independent sample. `dross-bench report` takes two `--labels`
+labels an independent sample. `dross-bench report` accepts two `--labels`
 files and reports Cohen's kappa for exactly that comparison.
 
 ## Reproducing
 
-Both labeled samples and machine-readable reports are committed, so every
-verdict can be checked against the code it refers to.
-
 ```bash
-cargo run -p dross-bench -- report --labels docs/benchmark-labels-round2.jsonl
+cargo run -p dross-bench -- report --labels docs/benchmark-labels-final.jsonl
 ```

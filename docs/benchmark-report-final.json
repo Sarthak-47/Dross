@@ -1,0 +1,161 @@
+{
+  "by_signal": {
+    "became-async": {
+      "true_positives": 6,
+      "false_positives": 0,
+      "unlabeled": 0,
+      "precision": 1.0,
+      "ci_low": 0.6096569663469354,
+      "ci_high": 0.9999999999999999
+    },
+    "empty-catch-body": {
+      "true_positives": 11,
+      "false_positives": 1,
+      "unlabeled": 0,
+      "precision": 0.9166666666666666,
+      "ci_low": 0.6461140782014047,
+      "ci_high": 0.9851352905492264
+    },
+    "log-only-catch": {
+      "true_positives": 5,
+      "false_positives": 7,
+      "unlabeled": 0,
+      "precision": 0.4166666666666667,
+      "ci_low": 0.19325746190524656,
+      "ci_high": 0.6804926643446272
+    },
+    "near-duplicate-function": {
+      "true_positives": 0,
+      "false_positives": 12,
+      "unlabeled": 0,
+      "precision": 0.0,
+      "ci_low": 0.0,
+      "ci_high": 0.2425007574992425
+    },
+    "optional-parameter-became-required": {
+      "true_positives": 12,
+      "false_positives": 0,
+      "unlabeled": 0,
+      "precision": 1.0,
+      "ci_low": 0.7574992425007574,
+      "ci_high": 1.0
+    },
+    "overly-broad-catch-type": {
+      "true_positives": 9,
+      "false_positives": 3,
+      "unlabeled": 0,
+      "precision": 0.75,
+      "ci_low": 0.46768966087934005,
+      "ci_high": 0.9110599603710386
+    },
+    "parameter-removed": {
+      "true_positives": 12,
+      "false_positives": 0,
+      "unlabeled": 0,
+      "precision": 1.0,
+      "ci_low": 0.7574992425007574,
+      "ci_high": 1.0
+    },
+    "parameter-type-changed": {
+      "true_positives": 12,
+      "false_positives": 0,
+      "unlabeled": 0,
+      "precision": 1.0,
+      "ci_low": 0.7574992425007574,
+      "ci_high": 1.0
+    },
+    "parameter-type-removed": {
+      "true_positives": 11,
+      "false_positives": 1,
+      "unlabeled": 0,
+      "precision": 0.9166666666666666,
+      "ci_low": 0.6461140782014047,
+      "ci_high": 0.9851352905492264
+    },
+    "pass-through-wrapper": {
+      "true_positives": 8,
+      "false_positives": 4,
+      "unlabeled": 0,
+      "precision": 0.6666666666666666,
+      "ci_low": 0.3906175873976139,
+      "ci_high": 0.8618821601026385
+    },
+    "required-parameter-added": {
+      "true_positives": 12,
+      "false_positives": 0,
+      "unlabeled": 0,
+      "precision": 1.0,
+      "ci_low": 0.7574992425007574,
+      "ci_high": 1.0
+    },
+    "return-type-changed": {
+      "true_positives": 12,
+      "false_positives": 0,
+      "unlabeled": 0,
+      "precision": 1.0,
+      "ci_low": 0.7574992425007574,
+      "ci_high": 1.0
+    },
+    "silent-optimistic-return": {
+      "true_positives": 0,
+      "false_positives": 12,
+      "unlabeled": 0,
+      "precision": 0.0,
+      "ci_low": 0.0,
+      "ci_high": 0.2425007574992425
+    },
+    "unused-generality": {
+      "true_positives": 6,
+      "false_positives": 1,
+      "unlabeled": 0,
+      "precision": 0.8571428571428571,
+      "ci_low": 0.48686549668097007,
+      "ci_high": 0.9743210440510253
+    }
+  },
+  "by_check": {
+    "contract-change": {
+      "true_positives": 77,
+      "false_positives": 1,
+      "unlabeled": 0,
+      "precision": 0.9871794871794872,
+      "ci_low": 0.9308897697115066,
+      "ci_high": 0.9977333266111463
+    },
+    "over-engineering": {
+      "true_positives": 14,
+      "false_positives": 5,
+      "unlabeled": 0,
+      "precision": 0.7368421052631579,
+      "ci_low": 0.5120803155892935,
+      "ci_high": 0.8819376166045982
+    },
+    "structural-clone": {
+      "true_positives": 0,
+      "false_positives": 12,
+      "unlabeled": 0,
+      "precision": 0.0,
+      "ci_low": 0.0,
+      "ci_high": 0.2425007574992425
+    },
+    "swallowed-exception": {
+      "true_positives": 25,
+      "false_positives": 23,
+      "unlabeled": 0,
+      "precision": 0.5208333333333334,
+      "ci_low": 0.3832899563598438,
+      "ci_high": 0.6552890998421255
+    }
+  },
+  "overall": {
+    "true_positives": 116,
+    "false_positives": 41,
+    "unlabeled": 0,
+    "precision": 0.7388535031847133,
+    "ci_low": 0.6650236754467227,
+    "ci_high": 0.8012736008797998
+  },
+  "agreement": null,
+  "recall": null,
+  "recall_note": "not measured — recall requires a seeded-defect corpus, not a label pass over emitted findings"
+}
