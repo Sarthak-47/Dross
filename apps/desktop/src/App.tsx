@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 
 import { api } from "./api";
 import { Connections } from "./components/Connections";
-import { EmptyState, type Fact } from "./components/EmptyState";
+import { EmptyState } from "./components/EmptyState";
 import { Findings } from "./components/Findings";
 import { Header } from "./components/Header";
 import { RiskHistory } from "./components/RiskHistory";
@@ -14,8 +14,6 @@ import {
   HISTORY_BARS,
   HISTORY_ROWS,
   SEED_CONNECTIONS,
-  SEED_FINDINGS,
-  SEED_SKIPPED,
   SIGNALS,
 } from "./fixtures";
 import { applyConfig, groupHistory, toConfig } from "./settingsSync";
@@ -40,13 +38,6 @@ import type {
 } from "./types";
 import "./theme.css";
 import "./App.css";
-
-/** Findings the design ships with, used until a repository is analysed. */
-const DEMO = {
-  findings: SEED_FINDINGS,
-  skipped: SEED_SKIPPED,
-  risk: 62,
-};
 
 export default function App() {
   const [repo, setRepo] = useState<RepositoryInfo | null>(null);
@@ -180,15 +171,15 @@ export default function App() {
     [config, signals, checks, cloneThreshold, zThreshold, minSeverity, commitGate],
   );
 
-  /** Real findings once analysed; the design's seed data before that. */
+  /** The analysed findings, shaped for the split pane. */
   const shown = useMemo<{
     findings: SeedFinding[];
     skipped: SkippedRow[];
     risk: number;
   }>(() => {
-    // Seed fixtures exist for design review of the split pane. They are never
-    // shown for a real repository — `view` routes to "unanalyzed" instead.
-    if (!report) return DEMO;
+    // The split pane only renders once an analysis exists; before that `view`
+    // routes to "unanalyzed", so there is no fixture fallback to reach.
+    if (!report) return { findings: [], skipped: [], risk: 0 };
     return {
       risk: report.risk_score,
       skipped: report.skipped,
@@ -285,11 +276,6 @@ export default function App() {
       }));
   }, [runs]);
 
-  const facts = useCallback(
-    (extra: Fact[]): Fact[] => extra,
-    [],
-  );
-
   function body() {
     if (tab === "connections") {
       return (
@@ -373,11 +359,11 @@ export default function App() {
           kicker="no repository open"
           title="Open a repository to assay a diff."
           body="Dross reads the working tree on this machine and nothing else. No account, no upload, no model call — every check is a parser, a hash, or a graph walk."
-          facts={facts([
+          facts={[
             { key: "checks available", value: "6" },
             { key: "index", value: "none", tone: "faint" },
             { key: "network", value: "never used" },
-          ])}
+          ]}
           cta={{ label: "Open repository…", onClick: openRepo }}
         />
       );
@@ -391,7 +377,7 @@ export default function App() {
           kicker="building index"
           title={`Hashing ${total.toLocaleString()} functions.`}
           body="Parsing each file once, normalizing identifiers and literals, then storing one hash per function in .dross/index.sqlite. You can keep working; findings other than clones are already available."
-          facts={facts([
+          facts={[
             { key: "phase", value: progress?.phase ?? "fingerprints" },
             {
               key: "functions hashed",
@@ -402,7 +388,7 @@ export default function App() {
               value: "unavailable until complete",
               tone: "warn",
             },
-          ])}
+          ]}
         />
       );
     }
@@ -413,7 +399,7 @@ export default function App() {
           kicker="index not built"
           title="Clone detection is unavailable until the index is built."
           body="Everything else runs now. Structural-clone comparison needs a normalized-AST hash of every function in the repository, which is then incremental."
-          facts={facts([
+          facts={[
             { key: "checks running", value: "5 of 6" },
             {
               key: "clone-detection",
@@ -421,7 +407,7 @@ export default function App() {
               tone: "warn",
             },
             { key: "estimated build", value: "one pass over the tree" },
-          ])}
+          ]}
           cta={{ label: "Build index", onClick: rebuild, disabled: busy !== null }}
         />
       );
@@ -433,7 +419,7 @@ export default function App() {
           kicker="ready to analyze"
           title="Nothing has been analyzed yet."
           body="Dross reads the diff you are about to commit, not the whole repository. Choose a target and run the checks; the result is deterministic, so the same diff always produces the same findings."
-          facts={facts([
+          facts={[
             { key: "index", value: `${repo?.indexedFunctions.toLocaleString() ?? 0} functions` },
             {
               key: "complexity baseline",
@@ -444,7 +430,7 @@ export default function App() {
               tone: (repo?.baselineSamples ?? 0) >= 30 ? undefined : "warn",
             },
             { key: "target", value: target === "staged" ? "staged changes" : "working tree" },
-          ])}
+          ]}
           cta={{ label: "Analyze", onClick: analyze, disabled: busy !== null }}
         />
       );
@@ -456,7 +442,7 @@ export default function App() {
           kicker="complexity baseline too small"
           title="The complexity signal is staying silent."
           body={`This repository has ${repo?.baselineSamples ?? 0} indexed samples. Below 30 a z-score says more about the sample than the code, so Dross reports nothing rather than reporting noise. Every other check ran.`}
-          facts={facts([
+          facts={[
             {
               key: "baseline samples",
               value: `${repo?.baselineSamples ?? 0} — need 30`,
@@ -464,7 +450,7 @@ export default function App() {
             },
             { key: "complexity-outlier", value: "silent", tone: "warn" },
             { key: "checks run", value: "5 of 6" },
-          ])}
+          ]}
           cta={{ label: "Run remaining checks", onClick: analyze }}
         />
       );
@@ -476,7 +462,7 @@ export default function App() {
           kicker="analysis complete · risk 0"
           title="Nothing to skim off this diff."
           body={`Six checks ran against ${report.files_analyzed} changed ${report.files_analyzed === 1 ? "file" : "files"}. Everything came through clean.`}
-          facts={facts([
+          facts={[
             { key: "checks run", value: "6 of 6", tone: "ok" },
             {
               key: "files examined",
@@ -486,7 +472,7 @@ export default function App() {
               key: "elapsed",
               value: `${report.duration_ms}ms · deterministic`,
             },
-          ])}
+          ]}
           cta={{ label: "Analyze again", onClick: analyze }}
         />
       );
