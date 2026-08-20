@@ -45,6 +45,14 @@ impl Default for Config {
                 ".nuxt",
                 "coverage",
                 "vendor",
+                // Published or bundled copies of a repository's own source.
+                // lodash ships npm-package/, socket.io ships client-dist/;
+                // both were analyzed as if hand-written.
+                "npm-package",
+                "client-dist",
+                "esm-dist",
+                "umd",
+                "lib-cov",
                 ".tox",
                 ".mypy_cache",
                 ".pytest_cache",

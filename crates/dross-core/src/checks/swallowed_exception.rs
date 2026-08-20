@@ -21,6 +21,12 @@ impl Check for SwallowedExceptionCheck {
     fn run(&self, ctx: &CheckContext<'_>) -> Vec<Finding> {
         let mut findings = Vec::new();
         for file in ctx.changed_files() {
+            // Test code swallows deliberately: awaiting a known rejection,
+            // asserting on a warning, probing for optional dependencies. Every
+            // sampled finding in a test file was a false positive.
+            if super::tautological_test::is_test_path(&file.path) {
+                continue;
+            }
             let Some(parsed) = ctx.parsed(&file.path) else {
                 continue;
             };
@@ -161,8 +167,14 @@ fn evaluate(file: &ParsedFile, handler: &CatchHandler<'_>, path: &std::path::Pat
     }
 
     // Signal 3: overly broad catch type.
+    //
+    // Breadth alone is a style opinion, not a defect. Every sampled finding was
+    // Flask's top-level request handler, which must catch everything and then
+    // delegates to `handle_user_exception`. The signal only means something
+    // when the broad catch also fails to surface what it caught.
+    let breadth_matters = !stats.surfaces_error();
     if let Some(caught) = handler.caught_type.as_deref() {
-        if is_broad_type(file.language, caught) {
+        if breadth_matters && is_broad_type(file.language, caught) {
             findings.push(Finding::new(
                 CheckId::SwallowedException,
                 "overly-broad-catch-type",
@@ -174,7 +186,10 @@ fn evaluate(file: &ParsedFile, handler: &CatchHandler<'_>, path: &std::path::Pat
                  intended to handle.",
             ));
         }
-    } else if file.language == Language::Python && is_bare_except(file, handler.node) {
+    } else if breadth_matters
+        && file.language == Language::Python
+        && is_bare_except(file, handler.node)
+    {
         findings.push(Finding::new(
             CheckId::SwallowedException,
             "overly-broad-catch-type",
@@ -241,6 +256,15 @@ fn body_stats(file: &ParsedFile, body: Option<Node<'_>>) -> BodyStats {
                 if text.starts_with("reject(") || text.contains("Promise.reject") {
                     stats.has_error_return = true;
                 }
+                // Throwing and returning are not the only ways to surface a
+                // failure. The benchmark found handlers that emit an error
+                // event, hand the error to a callback, or pass it to a
+                // reporter — socket.io's `emit("connection_error", ...)`,
+                // got's `_beforeError`, black's `report.failed(path, exc)`.
+                // All were reported as swallowed, and all were wrong.
+                if surfaces_error_via_call(text) {
+                    stats.has_error_return = true;
+                }
             }
             "return_statement" => {
                 if let Some(value) = returned_value(file, node) {
@@ -259,6 +283,60 @@ fn body_stats(file: &ParsedFile, body: Option<Node<'_>>) -> BodyStats {
     });
 
     stats
+}
+
+/// True when a call hands the failure somewhere the caller can observe.
+///
+/// Deliberately narrow: the call has to name an error, or be a conventional
+/// error-first callback. A generic `cleanup()` does not count.
+fn surfaces_error_via_call(text: &str) -> bool {
+    let head = text.split('(').next().unwrap_or(text).to_ascii_lowercase();
+    let leaf = head.rsplit('.').next().unwrap_or(&head).to_string();
+
+    // report.failed(...), this.emit("connection_error"), _beforeError(...)
+    // Delegating to an exception handler, e.g. `self.handle_user_exception(e)`.
+    if leaf.starts_with("handle") {
+        let lower = text.to_ascii_lowercase();
+        if lower.contains("exc") || lower.contains("error") {
+            return true;
+        }
+    }
+
+    if leaf.contains("beforeerror")
+        || leaf.contains("onerror")
+        || leaf.contains("handleerror")
+        || leaf.contains("reporterror")
+        || matches!(leaf.as_str(), "failed" | "fail" | "abort" | "errback")
+    {
+        return true;
+    }
+
+    // An emit/dispatch/publish whose event name mentions an error.
+    if matches!(
+        leaf.as_str(),
+        "emit" | "dispatch" | "publish" | "trigger" | "send"
+    ) {
+        let lower = text.to_ascii_lowercase();
+        return lower.contains("error") || lower.contains("fail");
+    }
+
+    // Node-style error-first callback. The argument is usually the caught
+    // binding — `callback(e)` — so requiring the word "error" missed it.
+    // A callback invoked with any argument on the failure path is passing the
+    // failure on; a bare `next()` is not.
+    if matches!(
+        leaf.as_str(),
+        "callback" | "cb" | "next" | "done" | "errback"
+    ) || leaf.ends_with("witherror")
+    {
+        let args = text
+            .split_once('(')
+            .map(|(_, rest)| rest.trim_end_matches(')').trim())
+            .unwrap_or("");
+        return !args.is_empty();
+    }
+
+    false
 }
 
 fn returned_value(file: &ParsedFile, node: Node<'_>) -> Option<String> {
@@ -394,6 +472,54 @@ mod tests {
 
     #[test]
     fn flags_broad_python_exception() {
+        let f = run_on(
+            Language::Python,
+            "try:\n    g()\nexcept Exception as e:\n    logging.error(e)\n",
+        );
+        assert!(signals(&f).contains(&"overly-broad-catch-type"));
+    }
+
+    /// Regression: a handler that hands the error to an emitter, a callback,
+    /// or a reporter is not swallowing it. socket.io, got, and black were all
+    /// reported as log-only across the benchmark.
+    #[test]
+    fn error_surfaced_through_a_call_is_not_swallowed() {
+        for src in [
+            "try { g(); } catch (e) { debug('x'); this.emit('connection_error', { error: e }); }",
+            "try { g(); } catch (e) { console.error(e); callback(e); }",
+        ] {
+            let f = run_on(Language::JavaScript, src);
+            assert!(
+                !signals(&f).contains(&"log-only-catch"),
+                "should not be log-only: {src}"
+            );
+        }
+
+        let py = run_on(
+            Language::Python,
+            "try:\n    g()\nexcept Exception as exc:\n    traceback.print_exc()\n    report.failed(path, exc)\n",
+        );
+        assert!(!signals(&py).contains(&"log-only-catch"));
+    }
+
+    /// Regression: breadth alone is a style opinion. Every sampled finding was
+    /// Flask's top-level request handler, which must catch everything and
+    /// delegates to handle_user_exception.
+    #[test]
+    fn a_broad_catch_that_delegates_is_not_reported() {
+        let f = run_on(
+            Language::Python,
+            "try:\n    rv = self.dispatch_request()\nexcept Exception as e:\n    rv = self.handle_user_exception(e)\n",
+        );
+        assert!(
+            !signals(&f).contains(&"overly-broad-catch-type"),
+            "got {:?}",
+            signals(&f)
+        );
+    }
+
+    #[test]
+    fn a_broad_catch_that_swallows_is_still_reported() {
         let f = run_on(
             Language::Python,
             "try:\n    g()\nexcept Exception as e:\n    logging.error(e)\n",

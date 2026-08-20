@@ -79,6 +79,14 @@ fn pass_through_wrappers(
         let Some(inner) = forwarding_target(parsed, node) else {
             continue;
         };
+        // The body being a single call is not enough. `findSummary(ref)`
+        // calling `findTag(ref, "@summary")` binds an argument, and
+        // `fixAllItemsIds` calling `.forEach(cb)` hides the logic in the
+        // callback. Both were reported as pass-throughs in the benchmark.
+        // A real wrapper forwards its own parameters, unchanged and in order.
+        if !forwards_parameters_verbatim(parsed, node, &func.params) {
+            continue;
+        }
         // Called from exactly one site: the wrapper adds indirection with no
         // reuse to justify it.
         let sites = symbols.call_site_count(name);
@@ -103,6 +111,70 @@ fn pass_through_wrappers(
         ));
     }
     out
+}
+
+/// True when the single call forwards exactly the function's own parameters,
+/// in order, adding nothing.
+fn forwards_parameters_verbatim(
+    file: &ParsedFile,
+    func: Node<'_>,
+    params: &[crate::ast::Param],
+) -> bool {
+    let Some(call) = single_call(func) else {
+        return false;
+    };
+    let Some(args) = call.child_by_field_name("arguments") else {
+        return false;
+    };
+    let mut cursor = args.walk();
+    let actual: Vec<String> = args
+        .named_children(&mut cursor)
+        .filter(|c| c.kind() != "comment")
+        .map(|c| {
+            let kind = c.kind();
+            // A function-literal argument carries logic of its own, so the
+            // wrapper is not a pure forward.
+            if kind.contains("function") || kind.contains("arrow") || kind == "lambda" {
+                String::from("<callback>")
+            } else {
+                file.text(c).trim().to_string()
+            }
+        })
+        .collect();
+
+    actual.len() == params.len()
+        && actual
+            .iter()
+            .zip(params)
+            .all(|(arg, param)| arg == &param.name)
+}
+
+/// The single call expression a body consists of, if that is all it contains.
+fn single_call<'a>(func: Node<'a>) -> Option<Node<'a>> {
+    let body = func.child_by_field_name("body")?;
+    let mut cursor = body.walk();
+    let statements: Vec<Node<'a>> = body
+        .named_children(&mut cursor)
+        .filter(|c| c.kind() != "comment")
+        .collect();
+    if statements.len() != 1 {
+        return None;
+    }
+    let stmt = statements[0];
+    let mut c = stmt.walk();
+    let expr = match stmt.kind() {
+        "return_statement" | "expression_statement" => stmt
+            .named_children(&mut c)
+            .find(|n| n.kind() != "comment")?,
+        _ => return None,
+    };
+    let call = if expr.kind() == "await_expression" {
+        let mut c2 = expr.walk();
+        expr.named_children(&mut c2).next()?
+    } else {
+        expr
+    };
+    matches!(call.kind(), "call_expression" | "call").then_some(call)
 }
 
 /// Returns the callee name if the body is exactly `return f(...)` / `f(...)`.
@@ -174,6 +246,14 @@ fn single_implementation_abstractions(
         if symbols.is_ambiguous(&name) {
             return;
         }
+        // A type-level contract — an event map, a props or payload shape — is
+        // implemented once by design and is not a polymorphic abstraction.
+        // socket.io's `SocketReservedEventsMap` and its siblings were all
+        // false positives. Requiring a declared method keeps this on
+        // behavioural interfaces.
+        if !declares_a_method(node) {
+            return;
+        }
         let implementors = symbols.subtypes(&name);
         if implementors.len() != 1 {
             return;
@@ -206,6 +286,20 @@ fn single_implementation_abstractions(
         ));
     });
     out
+}
+
+/// True when a type declares behaviour rather than only data members.
+fn declares_a_method(node: Node<'_>) -> bool {
+    let mut found = false;
+    walk(node, |n| {
+        if matches!(
+            n.kind(),
+            "method_signature" | "method_definition" | "function_signature" | "call_signature"
+        ) {
+            found = true;
+        }
+    });
+    found
 }
 
 fn looks_like_test_double(name: &str) -> bool {
@@ -260,13 +354,36 @@ fn overkill_patterns(parsed: &ParsedFile, file: &crate::diff::FileDiff) -> Vec<F
     out
 }
 
+/// Matches factory-ish names on word boundaries.
+///
+/// Substring matching flagged `test_idmaker_...` (through "make") and
+/// `_apply_long_str_strategy`, neither of which is a factory.
 fn is_factory_name(name: &str) -> bool {
-    let lower = name.to_ascii_lowercase();
-    [
-        "factory", "create", "make", "build", "resolve", "strategy", "provider",
-    ]
-    .iter()
-    .any(|n| lower.contains(n))
+    name.split(|c: char| !c.is_ascii_alphanumeric())
+        .flat_map(split_camel)
+        .any(|w| {
+            matches!(
+                w.to_ascii_lowercase().as_str(),
+                "factory" | "create" | "make" | "build"
+            )
+        })
+}
+
+/// Splits `createCookieJar` into `create`, `Cookie`, `Jar`.
+fn split_camel(part: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    let bytes = part.as_bytes();
+    for i in 1..bytes.len() {
+        if bytes[i].is_ascii_uppercase() {
+            out.push(&part[start..i]);
+            start = i;
+        }
+    }
+    if start < part.len() {
+        out.push(&part[start..]);
+    }
+    out
 }
 
 /// Counts the distinct values a dispatcher can return: switch cases, if/elif
@@ -280,21 +397,12 @@ fn dispatch_branch_count(file: &ParsedFile, func: Node<'_>) -> usize {
         "pair" => object_entries += 1,
         _ => {}
     });
-    // A `return new Foo()` with no branching is not a dispatcher at all; treat
-    // a single unconditional construction as one branch.
-    let total = cases.max(object_entries);
-    if total == 0 {
-        let mut constructions = 0;
-        walk(func, |n| {
-            if matches!(n.kind(), "new_expression") {
-                constructions += 1;
-            }
-        });
-        // Ignore trivially small helper factories with no construction at all.
-        let _ = file;
-        return constructions;
-    }
-    total
+    // A factory that unconditionally constructs one object is normal code, not
+    // overkill scaffolding. Only real dispatch counts, so `create_app` and
+    // similar application factories no longer register as one-variant
+    // registries — every such finding in the benchmark was a false positive.
+    let _ = file;
+    cases.max(object_entries)
 }
 
 // --- Signal: unused generality -------------------------------------------
@@ -328,6 +436,14 @@ fn unused_generality(
             if distinct.len() != 1 {
                 continue;
             }
+            // Only a literal means anything here. The benchmark reported
+            // "parameter `exc_info` is always `exc_info`" — the argument was a
+            // variable sharing the parameter's name, or a Python keyword
+            // fragment that positional matching had mis-indexed. All twelve
+            // sampled findings were false positives.
+            if !is_literal_argument(&distinct[0]) {
+                continue;
+            }
             out.push(Finding::new(
                 CheckId::OverEngineering,
                 "unused-generality",
@@ -350,6 +466,24 @@ fn unused_generality(
         }
     }
     out
+}
+
+/// True for arguments that are constants rather than expressions.
+///
+/// "always passed `true`" is a finding; "always passed `options`" is not — the
+/// latter says nothing about whether the parameter is ever exercised.
+fn is_literal_argument(text: &str) -> bool {
+    let t = text.trim();
+    if t.is_empty() || t.contains('=') || t.contains('(') {
+        return false;
+    }
+    matches!(
+        t,
+        "true" | "false" | "null" | "undefined" | "None" | "True" | "False"
+    ) || t.parse::<f64>().is_ok()
+        || t.starts_with('"')
+        || t.starts_with('\'')
+        || t.starts_with('`')
 }
 
 fn is_config_flag(param: &crate::ast::Param) -> bool {
@@ -607,6 +741,57 @@ mod tests {
         let f = unused_generality(&parsed, &diff, &symbols);
         assert_eq!(f.len(), 1, "got {f:?}");
         assert!(f[0].message.contains("useCache"));
+    }
+
+    /// Regression: `findSummary(ref)` calling `findTag(ref, "@summary")` binds
+    /// an argument, and a body that is one `.forEach(cb)` hides its logic in
+    /// the callback. Both were reported as pass-throughs across the benchmark.
+    #[test]
+    fn a_wrapper_that_binds_an_argument_is_not_a_pass_through() {
+        let src =
+            "function findSummary(ref) { return findTag(ref, '@summary'); }\nfindSummary(x);\n";
+        let parsed = ParsedFile::parse(Language::JavaScript, src).unwrap();
+        let mut symbols = SymbolTable::new();
+        symbols.add_parsed(std::path::Path::new("a.js"), &parsed);
+        let diff = whole_file_diff("a.js", src, Language::JavaScript);
+        assert!(pass_through_wrappers(&parsed, &diff, &symbols).is_empty());
+    }
+
+    #[test]
+    fn a_body_that_is_one_call_with_a_callback_is_not_a_pass_through() {
+        let src = "function fixAll(data) { return each(data, (v) => { if (v) { fix(v); } }); }\nfixAll(d);\n";
+        let parsed = ParsedFile::parse(Language::JavaScript, src).unwrap();
+        let mut symbols = SymbolTable::new();
+        symbols.add_parsed(std::path::Path::new("a.js"), &parsed);
+        let diff = whole_file_diff("a.js", src, Language::JavaScript);
+        assert!(pass_through_wrappers(&parsed, &diff, &symbols).is_empty());
+    }
+
+    /// Regression: the name matcher hit substrings inside unrelated words, so
+    /// `test_idmaker_...` matched "make" and `_apply_long_str_strategy`
+    /// matched "strategy".
+    #[test]
+    fn factory_names_match_on_word_boundaries() {
+        assert!(is_factory_name("createExporter"));
+        assert!(is_factory_name("create_app"));
+        assert!(is_factory_name("build_thing"));
+        assert!(!is_factory_name("test_idmaker_long_string"));
+        // A *_strategy function is a strategy implementation, not a registry;
+        // both of these were false positives in the benchmark.
+        assert!(!is_factory_name("_apply_long_str_strategy"));
+        assert!(!is_factory_name("singleFetchLoaderFetcherStrategy"));
+    }
+
+    /// Regression: "always passed `exc_info`" reported a variable name, not a
+    /// constant, so the parameter was in fact exercised.
+    #[test]
+    fn unused_generality_requires_a_literal() {
+        assert!(is_literal_argument("true"));
+        assert!(is_literal_argument("0"));
+        assert!(is_literal_argument("\"csv\""));
+        assert!(!is_literal_argument("exc_info"));
+        assert!(!is_literal_argument("by_alias=self.by_alias"));
+        assert!(!is_literal_argument("compute()"));
     }
 
     #[test]
