@@ -21,7 +21,9 @@ impl Check for ContractChangeCheck {
     fn run(&self, ctx: &CheckContext<'_>) -> Vec<Finding> {
         let mut findings = Vec::new();
 
-        for file in ctx.diffs {
+        // changed_files() rather than ctx.diffs, so ignored and generated
+        // files are skipped here too.
+        for file in ctx.changed_files() {
             let (Some(new_parsed), Some(old_parsed)) =
                 (ctx.parsed(&file.path), ctx.parsed_old(file))
             else {
