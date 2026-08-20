@@ -17,6 +17,7 @@ import {
   SIGNALS,
 } from "./fixtures";
 import { applyConfig, groupHistory, toConfig } from "./settingsSync";
+import { deriveView } from "./viewState";
 import type {
   AdapterStatus,
   CheckRow,
@@ -213,22 +214,16 @@ export default function App() {
     };
   }, [report]);
 
-  /** Derived, never chosen by the user. */
-  const view: ViewState = useMemo(() => {
-    if (!repo) return "norepo";
-    if (busy === "Building index") return "building";
-    if (!repo.indexBuilt) return "noindex";
-    // A repository with no analysis behind it has no findings to show. The
-    // seed fixtures must never stand in here — presenting invented findings
-    // for somebody's real code would be worse than showing nothing.
-    if (!report) return "unanalyzed";
-    if (report.findings.length === 0) {
-      // Ordered before "clean": a silent complexity signal is the more
-      // specific fact, and the clean state would otherwise swallow it.
-      return repo.baselineSamples < 30 ? "smallbase" : "clean";
-    }
-    return "findings";
-  }, [repo, busy, report]);
+  /** Derived, never chosen by the user. See viewState.ts. */
+  const view: ViewState = useMemo(
+    () =>
+      deriveView({
+        repo,
+        indexing: busy === "Building index",
+        findingCount: report ? report.findings.length : null,
+      }),
+    [repo, busy, report],
+  );
 
   const connectionCards: ConnectionCard[] = useMemo(() => {
     if (!adapters) return SEED_CONNECTIONS;

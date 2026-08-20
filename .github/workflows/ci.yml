@@ -103,6 +103,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci --prefix apps/desktop
 
+      - name: Frontend tests
+        run: npm test --prefix apps/desktop
+
       - name: Type-check and build frontend
         run: npm run build --prefix apps/desktop
 
