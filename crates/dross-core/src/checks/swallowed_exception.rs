@@ -112,6 +112,41 @@ fn caught_type(file: &ParsedFile, node: Node<'_>) -> Option<String> {
     }
 }
 
+/// True when the enclosing function is a predicate or probe — it returns a
+/// boolean literal on the success path too, so returning `false` on failure is
+/// the contract rather than a hidden failure.
+///
+/// Every silent-optimistic-return finding in the benchmark was one of these:
+/// `hasDependency`, `shouldBypassProxy`, zod's IP validators.
+fn encloses_a_predicate(file: &ParsedFile, handler: Node<'_>) -> bool {
+    let mut current = handler.parent();
+    while let Some(node) = current {
+        if crate::ast::is_function_node(file.language, node.kind()) {
+            let mut returns_bool_outside_handler = false;
+            crate::ast::walk(node, |n| {
+                if n.kind() != "return_statement" {
+                    return;
+                }
+                // Ignore returns inside the handler itself.
+                if n.start_byte() >= handler.start_byte() && n.end_byte() <= handler.end_byte() {
+                    return;
+                }
+                let text = file.text(n);
+                if text.contains("true")
+                    || text.contains("false")
+                    || text.contains("True")
+                    || text.contains("False")
+                {
+                    returns_bool_outside_handler = true;
+                }
+            });
+            return returns_bool_outside_handler;
+        }
+        current = node.parent();
+    }
+    false
+}
+
 fn evaluate(file: &ParsedFile, handler: &CatchHandler<'_>, path: &std::path::Path) -> Vec<Finding> {
     let mut findings = Vec::new();
     let span = SourceSpan {
@@ -123,7 +158,7 @@ fn evaluate(file: &ParsedFile, handler: &CatchHandler<'_>, path: &std::path::Pat
     let stats = body_stats(file, handler.body);
 
     // Signal 1: empty catch body.
-    if stats.is_empty {
+    if stats.is_empty && !stats.is_documented {
         findings.push(Finding::new(
             CheckId::SwallowedException,
             "empty-catch-body",
@@ -135,9 +170,24 @@ fn evaluate(file: &ParsedFile, handler: &CatchHandler<'_>, path: &std::path::Pat
         ));
         return findings;
     }
+    if stats.is_empty {
+        // Documented and empty: the decision is recorded, so nothing to say.
+        return findings;
+    }
 
     // Signal 2: log-only catch.
-    if stats.has_logging && !stats.surfaces_error() {
+    //
+    // A *narrow* catch that returns explicitly is stating a contract: pytest's
+    // `_read_pyc` catches OSError, traces it, and returns None, which every
+    // caller checks. Reporting that is second-guessing a deliberate design.
+    // A broad catch has made no such statement.
+    let narrow_with_explicit_return = stats.returns_literal.is_some()
+        && handler
+            .caught_type
+            .as_deref()
+            .is_some_and(|c| !is_broad_type(file.language, c));
+
+    if stats.has_logging && !stats.surfaces_error() && !narrow_with_explicit_return {
         findings.push(Finding::new(
             CheckId::SwallowedException,
             "log-only-catch",
@@ -152,6 +202,7 @@ fn evaluate(file: &ParsedFile, handler: &CatchHandler<'_>, path: &std::path::Pat
     // Signal 4: silent optimistic return.
     if let Some(literal) = stats.returns_literal.as_ref()
         && !stats.surfaces_error()
+        && !encloses_a_predicate(file, handler.node)
     {
         findings.push(Finding::new(
             CheckId::SwallowedException,
@@ -207,6 +258,8 @@ fn evaluate(file: &ParsedFile, handler: &CatchHandler<'_>, path: &std::path::Pat
 #[derive(Default)]
 struct BodyStats {
     is_empty: bool,
+    /// The handler carries a comment explaining the decision.
+    is_documented: bool,
     has_logging: bool,
     has_throw: bool,
     has_error_return: bool,
@@ -228,8 +281,15 @@ fn body_stats(file: &ParsedFile, body: Option<Node<'_>>) -> BodyStats {
     };
 
     let mut cursor = body.walk();
-    let meaningful: Vec<Node<'_>> = body
-        .named_children(&mut cursor)
+    let children: Vec<Node<'_>> = body.named_children(&mut cursor).collect();
+    // An empty catch carrying an explanation is a decision someone made and
+    // wrote down — "Ignore failures from custom stack hooks", "no-op, use
+    // default empty object", "node-fetch throws when the request is closed
+    // abnormally". Those were the false positives; the ones worth reporting
+    // had nothing at all.
+    stats.is_documented = children.iter().any(|c| c.kind() == "comment");
+    let meaningful: Vec<Node<'_>> = children
+        .into_iter()
         .filter(|c| !matches!(c.kind(), "comment"))
         .collect();
     stats.statement_count = meaningful.len();
@@ -312,10 +372,13 @@ fn surfaces_error_via_call(text: &str) -> bool {
     }
 
     // An emit/dispatch/publish whose event name mentions an error.
-    if matches!(
-        leaf.as_str(),
-        "emit" | "dispatch" | "publish" | "trigger" | "send"
-    ) {
+    if leaf.starts_with("emit")
+        || leaf.starts_with("dispatch")
+        || leaf.starts_with("publish")
+        || leaf.starts_with("trigger")
+        || leaf.starts_with("send")
+        || leaf.starts_with("notify")
+    {
         let lower = text.to_ascii_lowercase();
         return lower.contains("error") || lower.contains("fail");
     }
@@ -434,6 +497,26 @@ mod tests {
         assert_eq!(signals(&f), vec!["empty-catch-body"]);
     }
 
+    /// Regression: an empty catch with a comment is a recorded decision.
+    /// Axios, react-router and socket.io all had one, and all were false
+    /// positives.
+    #[test]
+    fn a_documented_empty_catch_is_not_reported() {
+        let f = run_on(
+            Language::JavaScript,
+            "try { g(); } catch (e) {
+  // Ignore failures from custom stack hooks.
+}",
+        );
+        assert!(f.is_empty(), "got {:?}", signals(&f));
+    }
+
+    #[test]
+    fn an_undocumented_empty_catch_is_still_reported() {
+        let f = run_on(Language::JavaScript, "try { g(); } catch (e) {}");
+        assert!(signals(&f).contains(&"empty-catch-body"));
+    }
+
     #[test]
     fn flags_python_except_pass() {
         let f = run_on(
@@ -448,6 +531,43 @@ mod tests {
         let f = run_on(
             Language::JavaScript,
             "try { g(); } catch (e) { console.error(e); }",
+        );
+        assert!(signals(&f).contains(&"log-only-catch"));
+    }
+
+    /// Regression: pytest's `_read_pyc` catches OSError, traces it, and returns
+    /// None as its documented contract. A narrow catch that returns explicitly
+    /// has stated its behaviour.
+    #[test]
+    fn a_narrow_catch_that_returns_is_a_contract_not_a_swallow() {
+        let f = run_on(
+            Language::Python,
+            "def read(p):
+    try:
+        return load(p)
+    except OSError as e:
+        trace(e)
+        return None
+",
+        );
+        assert!(
+            !signals(&f).contains(&"log-only-catch"),
+            "got {:?}",
+            signals(&f)
+        );
+    }
+
+    #[test]
+    fn a_broad_catch_that_logs_and_returns_is_still_reported() {
+        let f = run_on(
+            Language::Python,
+            "def read(p):
+    try:
+        return load(p)
+    except Exception as e:
+        logging.error(e)
+        return None
+",
         );
         assert!(signals(&f).contains(&"log-only-catch"));
     }
@@ -525,6 +645,31 @@ mod tests {
             "try:\n    g()\nexcept Exception as e:\n    logging.error(e)\n",
         );
         assert!(signals(&f).contains(&"overly-broad-catch-type"));
+    }
+
+    /// Regression: a predicate returning `false` when parsing fails is stating
+    /// its contract, not hiding an error. All twelve sampled
+    /// silent-optimistic-return findings were this shape.
+    #[test]
+    fn a_predicate_returning_false_on_failure_is_not_a_silent_default() {
+        let f = run_on(
+            Language::JavaScript,
+            "function isIPv6(value) { try { new URL(`http://[${value}]`); return true; } catch { return false; } }",
+        );
+        assert!(
+            !signals(&f).contains(&"silent-optimistic-return"),
+            "got {:?}",
+            signals(&f)
+        );
+    }
+
+    #[test]
+    fn a_value_returning_function_still_reports_a_silent_default() {
+        let f = run_on(
+            Language::JavaScript,
+            "function parsePort(raw) { try { return Number.parseInt(raw, 10); } catch (e) { return 0; } }",
+        );
+        assert!(signals(&f).contains(&"silent-optimistic-return"));
     }
 
     #[test]

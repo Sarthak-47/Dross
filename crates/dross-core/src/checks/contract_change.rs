@@ -24,6 +24,13 @@ impl Check for ContractChangeCheck {
         // changed_files() rather than ctx.diffs, so ignored and generated
         // files are skipped here too.
         for file in ctx.changed_files() {
+            // A test function has no external callers to break. Adding a
+            // pytest fixture parameter, or making a test async, is not a
+            // contract change — it was 24 of the 25 false positives this
+            // check produced across the benchmark corpus.
+            if super::tautological_test::is_non_production_path(&file.path) {
+                continue;
+            }
             let (Some(new_parsed), Some(old_parsed)) =
                 (ctx.parsed(&file.path), ctx.parsed_old(file))
             else {
@@ -381,6 +388,54 @@ def instance_of(type: type[T]) -> int: ...
             !signals(&f).contains(&"parameter-type-changed"),
             "a rename with an identical type must not report a type change"
         );
+    }
+
+    #[test]
+    fn test_functions_are_not_contract_changes() {
+        use crate::authorship::AuthorshipMap;
+        use crate::config::Config;
+        use crate::diff::{ChangeKind, FileDiff, Hunk};
+        use crate::engine::Engine;
+        use std::path::{Path, PathBuf};
+
+        let before = "def test_thing(app):
+    assert app
+";
+        let after = "def test_thing(app, client):
+    assert app
+";
+        let make = |path: &str| FileDiff {
+            path: PathBuf::from(path),
+            old_path: None,
+            kind: ChangeKind::Modified,
+            language: Some(Language::Python),
+            hunks: vec![Hunk {
+                new_start: 1,
+                new_lines: 2,
+                old_start: 1,
+                old_lines: 2,
+            }],
+            new_source: Some(after.to_string()),
+            old_source: Some(before.to_string()),
+        };
+
+        let run = |path: &str| {
+            let diffs = vec![make(path)];
+            Engine::new(Config::default())
+                .analyze_diffs(Path::new("."), &diffs, &AuthorshipMap::new())
+                .unwrap()
+                .findings
+                .into_iter()
+                .filter(|f| f.check == CheckId::ContractChange)
+                .count()
+        };
+
+        assert_eq!(
+            run("tests/test_app.py"),
+            0,
+            "a test gained a fixture, not a contract change"
+        );
+        assert!(run("src/app.py") > 0, "library code must still be reported");
     }
 
     #[test]
