@@ -46,6 +46,33 @@ impl Check for TautologicalTestCheck {
     }
 }
 
+/// Paths whose code is not production code and should not be judged as such.
+///
+/// Examples, end-to-end page objects, benchmark harnesses and playgrounds all
+/// use shapes that read as defects in a library — aliases, thin wrappers,
+/// hard-coded arguments — and are correct where they live.
+pub fn is_non_production_path(path: &std::path::Path) -> bool {
+    if is_test_path(path) {
+        return true;
+    }
+    let s = path
+        .to_string_lossy()
+        .replace('\\', "/")
+        .to_ascii_lowercase();
+    s.contains("/examples/")
+        || s.starts_with("examples/")
+        || s.contains("/example/")
+        || s.contains("/e2e/")
+        || s.contains("/bench/")
+        || s.contains("/benchmarks/")
+        || s.contains("/perf-testing/")
+        || s.contains("/playground")
+        || s.contains("/docs/")
+        || s.starts_with("docs/")
+        || s.contains("/fixtures/")
+        || s.contains("/scripts/")
+}
+
 pub fn is_test_path(path: &std::path::Path) -> bool {
     let s = path
         .to_string_lossy()

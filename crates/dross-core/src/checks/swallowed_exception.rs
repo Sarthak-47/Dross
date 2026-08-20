@@ -24,7 +24,7 @@ impl Check for SwallowedExceptionCheck {
             // Test code swallows deliberately: awaiting a known rejection,
             // asserting on a warning, probing for optional dependencies. Every
             // sampled finding in a test file was a false positive.
-            if super::tautological_test::is_test_path(&file.path) {
+            if super::tautological_test::is_non_production_path(&file.path) {
                 continue;
             }
             let Some(parsed) = ctx.parsed(&file.path) else {

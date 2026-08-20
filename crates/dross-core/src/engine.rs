@@ -139,6 +139,10 @@ impl Engine {
 
             let mut produced = check.run(&ctx);
 
+            // Signal-level suppression happens here rather than inside each
+            // check, so a disabled signal cannot be forgotten in one of them.
+            produced.retain(|f| self.config.is_signal_enabled(&f.signal));
+
             // Spec section 5: untagged hunks get the lighter pass. Checks that
             // only make sense for agent code drop their human-code findings.
             if !check.applies_to_human_code() {

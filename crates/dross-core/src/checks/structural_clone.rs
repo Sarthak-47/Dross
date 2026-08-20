@@ -55,7 +55,7 @@ impl Check for StructuralCloneCheck {
             // Test helpers repeat by nature — the same fixture builder appears
             // in file after file — and consolidating them is rarely the right
             // call. Every sampled clone finding in test code was noise.
-            if super::tautological_test::is_test_path(&file.path) {
+            if super::tautological_test::is_non_production_path(&file.path) {
                 continue;
             }
             let Some(parsed) = ctx.parsed(&file.path) else {

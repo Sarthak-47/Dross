@@ -11,6 +11,14 @@ use crate::finding::{CheckId, Severity};
 #[serde(default)]
 pub struct Config {
     pub disabled_checks: HashSet<CheckId>,
+    /// Individual signals to suppress, by their stable signal id.
+    ///
+    /// Precision varies far more between signals than between checks — the
+    /// benchmark measured `parameter-removed` at 100% and several
+    /// over-engineering signals at 0% — so suppression has to be expressible
+    /// at this granularity or a useful check gets disabled to silence one bad
+    /// signal inside it.
+    pub disabled_signals: HashSet<String>,
     pub min_severity: Severity,
     /// Type-2/3 clone similarity threshold.
     pub clone_threshold: f64,
@@ -28,6 +36,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             disabled_checks: HashSet::new(),
+            disabled_signals: default_disabled_signals(),
             min_severity: Severity::Info,
             clone_threshold: crate::checks::structural_clone::DEFAULT_THRESHOLD,
             complexity_z_threshold: crate::checks::over_engineering::OUTLIER_Z_THRESHOLD,
@@ -68,9 +77,41 @@ impl Default for Config {
     }
 }
 
+/// Signals off by default because their measured precision does not justify
+/// interrupting a commit. See `docs/BENCHMARK_RESULTS.md`.
+///
+/// They remain implemented and can be switched on per repository. The reason
+/// to default them off is that a pre-commit check is uninstalled as a whole:
+/// one noisy signal takes the accurate ones with it.
+fn default_disabled_signals() -> HashSet<String> {
+    [
+        // 0 true positives across 24 labeled findings, over two rounds and a
+        // fix attempt. An ordinary factory containing one `if` is not a
+        // one-variant registry, and separating the two needs resolution this
+        // check does not have.
+        "overkill-design-pattern",
+        // 0 of 24. What it finds are published extension points — socket.io's
+        // `BaseXHR`, `ClusterAdapter` — subclassed by consumers the repository
+        // cannot see. Name-based resolution cannot tell those from
+        // speculative generality.
+        "single-implementation-abstraction",
+        // 0 of 12. Now measures added rather than touched complexity, but has
+        // not been re-validated, and a signal that fired on "chore: format" at
+        // 8.4 sigma has to earn its way back on.
+        "complexity-to-problem-size-outlier",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
 impl Config {
     pub fn is_enabled(&self, check: CheckId) -> bool {
         !self.disabled_checks.contains(&check)
+    }
+
+    pub fn is_signal_enabled(&self, signal: &str) -> bool {
+        !self.disabled_signals.contains(signal)
     }
 
     pub fn is_ignored(&self, path: &Path) -> bool {
@@ -104,6 +145,26 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn signals_with_no_measured_precision_are_off_by_default() {
+        let c = Config::default();
+        for signal in [
+            "overkill-design-pattern",
+            "single-implementation-abstraction",
+            "complexity-to-problem-size-outlier",
+        ] {
+            assert!(!c.is_signal_enabled(signal), "{signal} should default off");
+        }
+        // The signals that measured well stay on.
+        for signal in [
+            "empty-catch-body",
+            "parameter-removed",
+            "required-parameter-added",
+        ] {
+            assert!(c.is_signal_enabled(signal), "{signal} should default on");
+        }
+    }
 
     #[test]
     fn defaults_enable_every_check() {

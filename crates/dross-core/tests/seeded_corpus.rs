@@ -131,7 +131,14 @@ impl Drop for IsolatedCase {
 }
 
 fn analyze_in(root: &Path, diffs: Vec<FileDiff>, index: Option<FingerprintIndex>) -> Vec<Finding> {
-    let mut engine = Engine::new(Config::default());
+    // The corpus verifies what each check is *able* to detect. Which signals
+    // ship on by default is a separate policy decision, tested in the config
+    // module, so everything is enabled here.
+    let config = Config {
+        disabled_signals: Default::default(),
+        ..Config::default()
+    };
+    let mut engine = Engine::new(config);
     if let Some(index) = index {
         engine = engine.with_index(index);
     }

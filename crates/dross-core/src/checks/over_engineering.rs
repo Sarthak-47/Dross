@@ -40,7 +40,7 @@ impl Check for OverEngineeringCheck {
             // looks exactly like unused generality — both are normal there.
             // Found by running Dross against its own repository, where
             // `test_roundtrip` was flagged for forwarding to `assertEqual`.
-            if super::tautological_test::is_test_path(&file.path) {
+            if super::tautological_test::is_non_production_path(&file.path) {
                 continue;
             }
             findings.extend(pass_through_wrappers(parsed, file, &symbols));
