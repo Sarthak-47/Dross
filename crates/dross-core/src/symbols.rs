@@ -11,6 +11,7 @@
 //! ambiguous repo-wide, the over-engineering check declines to fire rather than
 //! guessing, so ambiguity costs recall, never precision.
 
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -47,12 +48,77 @@ pub struct Declaration {
     pub kind: DeclKind,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum DeclKind {
     Class,
     Interface,
     AbstractClass,
     Function,
+}
+
+/// One file's extracted symbols, kept separate from `SymbolTable` so it can be
+/// cached in the index. Re-parsing every file in the repository on every run
+/// made a single-file check take seconds on a large tree.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct FileSymbols {
+    /// (callee name, line, argument texts)
+    pub calls: Vec<(String, usize, Vec<String>)>,
+    /// (name, line, kind)
+    pub declarations: Vec<(String, usize, DeclKind)>,
+    /// (supertype, subtype)
+    pub subtypes: Vec<(String, String)>,
+}
+
+impl FileSymbols {
+    pub fn extract(parsed: &ParsedFile) -> Self {
+        let mut out = Self::default();
+
+        walk(parsed.root(), |node| match node.kind() {
+            "call_expression" | "call" | "new_expression" => {
+                if let Some(name) = callee_name(parsed, node) {
+                    let (line, _) = parsed.line_span(node);
+                    out.calls.push((name, line, argument_texts(parsed, node)));
+                }
+            }
+            "class_declaration"
+            | "class"
+            | "class_definition"
+            | "interface_declaration"
+            | "abstract_class_declaration" => {
+                let Some(name_node) = node.child_by_field_name("name") else {
+                    return;
+                };
+                let name = parsed.text(name_node).to_string();
+                let (line, _) = parsed.line_span(node);
+                let kind = match node.kind() {
+                    "interface_declaration" => DeclKind::Interface,
+                    "abstract_class_declaration" => DeclKind::AbstractClass,
+                    _ => DeclKind::Class,
+                };
+                out.declarations.push((name.clone(), line, kind));
+                for parent in supertypes(parsed, node) {
+                    out.subtypes.push((parent, name.clone()));
+                }
+            }
+            _ => {}
+        });
+
+        // Function declarations distinguish "declared here" from "called here"
+        // and are what makes duplicate-name detection possible.
+        for func in parsed.functions() {
+            if let Some(name) = func.name.clone() {
+                out.declarations
+                    .push((name, func.start_line, DeclKind::Function));
+            }
+        }
+
+        out
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.calls.is_empty() && self.declarations.is_empty() && self.subtypes.is_empty()
+    }
 }
 
 impl SymbolTable {
@@ -72,74 +138,52 @@ impl SymbolTable {
     }
 
     pub fn add_parsed(&mut self, path: &Path, parsed: &ParsedFile) {
+        self.add_symbols(path, FileSymbols::extract(parsed));
+    }
+
+    /// Merges pre-extracted symbols. This is the path cached entries take.
+    pub fn add_symbols(&mut self, path: &Path, symbols: FileSymbols) {
+        self.merge(path, symbols);
+        self.recompute_ambiguity();
+    }
+
+    /// Merges many files, recomputing ambiguity once at the end. Doing it per
+    /// file is quadratic over the declaration set.
+    pub fn add_many<'a>(&mut self, entries: impl Iterator<Item = (&'a Path, FileSymbols)>) {
+        for (path, symbols) in entries {
+            self.merge(path, symbols);
+        }
+        self.recompute_ambiguity();
+    }
+
+    fn merge(&mut self, path: &Path, symbols: FileSymbols) {
         self.files_scanned += 1;
 
-        walk(parsed.root(), |node| match node.kind() {
-            "call_expression" | "call" | "new_expression" => {
-                if let Some(name) = callee_name(parsed, node) {
-                    let (line, _) = parsed.line_span(node);
-                    self.call_sites
-                        .entry(name.clone())
-                        .or_default()
-                        .push(CallSite {
-                            file: path.to_path_buf(),
-                            line,
-                        });
-                    self.call_arguments
-                        .entry(name)
-                        .or_default()
-                        .push(argument_texts(parsed, node));
-                }
-            }
-            "class_declaration"
-            | "class"
-            | "class_definition"
-            | "interface_declaration"
-            | "abstract_class_declaration" => {
-                let Some(name_node) = node.child_by_field_name("name") else {
-                    return;
-                };
-                let name = parsed.text(name_node).to_string();
-                let (line, _) = parsed.line_span(node);
-                let kind = match node.kind() {
-                    "interface_declaration" => DeclKind::Interface,
-                    "abstract_class_declaration" => DeclKind::AbstractClass,
-                    _ => DeclKind::Class,
-                };
-                self.declarations
-                    .entry(name.clone())
-                    .or_default()
-                    .push(Declaration {
-                        file: path.to_path_buf(),
-                        line,
-                        kind,
-                    });
-                for parent in supertypes(parsed, node) {
-                    self.subtypes
-                        .entry(parent)
-                        .or_default()
-                        .insert(name.clone());
-                }
-            }
-            _ => {}
-        });
-
-        // Record function declarations so we can tell "declared here" from
-        // "called here" and detect duplicate names.
-        for func in parsed.functions() {
-            if let Some(name) = func.name.clone() {
-                self.declarations
-                    .entry(name)
-                    .or_default()
-                    .push(Declaration {
-                        file: path.to_path_buf(),
-                        line: func.start_line,
-                        kind: DeclKind::Function,
-                    });
-            }
+        for (name, line, args) in symbols.calls {
+            self.call_sites
+                .entry(name.clone())
+                .or_default()
+                .push(CallSite {
+                    file: path.to_path_buf(),
+                    line,
+                });
+            self.call_arguments.entry(name).or_default().push(args);
         }
 
-        self.recompute_ambiguity();
+        for (name, line, kind) in symbols.declarations {
+            self.declarations
+                .entry(name)
+                .or_default()
+                .push(Declaration {
+                    file: path.to_path_buf(),
+                    line,
+                    kind,
+                });
+        }
+
+        for (parent, child) in symbols.subtypes {
+            self.subtypes.entry(parent).or_default().insert(child);
+        }
     }
 
     fn recompute_ambiguity(&mut self) {

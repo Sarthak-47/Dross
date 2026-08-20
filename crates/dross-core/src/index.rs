@@ -97,6 +97,15 @@ impl FingerprintIndex {
             );
             CREATE INDEX IF NOT EXISTS idx_risk_time ON risk_history(recorded_at);
 
+            -- Cached per-file symbols. Without this the symbol table is
+            -- rebuilt by re-parsing every file in the repository on every
+            -- run, which made a single-file check take seconds on a large
+            -- tree -- unusable for a pre-commit hook.
+            CREATE TABLE IF NOT EXISTS file_symbols (
+                path    TEXT PRIMARY KEY,
+                symbols TEXT NOT NULL
+            );
+
             -- Per-repo complexity baseline (spec 5a).
             CREATE TABLE IF NOT EXISTS complexity_baseline (
                 id            INTEGER PRIMARY KEY,
@@ -122,7 +131,7 @@ impl FingerprintIndex {
             Some(_) => {
                 // Fingerprints from an older normalization are not comparable.
                 self.conn.execute_batch(
-                    "DELETE FROM bands; DELETE FROM functions; DELETE FROM complexity_baseline;",
+                    "DELETE FROM bands; DELETE FROM functions; DELETE FROM complexity_baseline; DELETE FROM file_symbols;",
                 )?;
                 self.set_meta("schema_version", &SCHEMA_VERSION.to_string())?;
             }
@@ -168,6 +177,15 @@ impl FingerprintIndex {
             params![path_str],
         )?;
         tx.execute("DELETE FROM functions WHERE path = ?1", params![path_str])?;
+
+        // Cache this file's symbols alongside its fingerprints so the check
+        // run does not have to re-parse the whole repository.
+        let symbols = crate::symbols::FileSymbols::extract(&parsed);
+        tx.execute(
+            "INSERT INTO file_symbols(path, symbols) VALUES (?1, ?2)
+             ON CONFLICT(path) DO UPDATE SET symbols = excluded.symbols",
+            params![path_str, serde_json::to_string(&symbols)?],
+        )?;
 
         let mut count = 0;
         for func in parsed.functions() {
@@ -216,7 +234,47 @@ impl FingerprintIndex {
         )?;
         self.conn
             .execute("DELETE FROM functions WHERE path = ?1", params![path_str])?;
+        self.conn.execute(
+            "DELETE FROM file_symbols WHERE path = ?1",
+            params![path_str],
+        )?;
         Ok(())
+    }
+
+    /// Loads every cached file's symbols, skipping paths the caller will
+    /// supply itself (the changed files, whose on-disk content may be stale
+    /// relative to what is staged).
+    pub fn load_symbols(
+        &self,
+        exclude: &std::collections::HashSet<PathBuf>,
+    ) -> Result<Vec<(PathBuf, crate::symbols::FileSymbols)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT path, symbols FROM file_symbols")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+
+        let mut out = Vec::new();
+        for row in rows {
+            let (path, json) = row?;
+            let path = PathBuf::from(path);
+            if exclude.contains(&path) {
+                continue;
+            }
+            // A row that fails to parse is skipped rather than aborting the
+            // run; a stale cache entry should degrade recall, not break the
+            // check entirely.
+            if let Ok(symbols) = serde_json::from_str(&json) {
+                out.push((path, symbols));
+            }
+        }
+        Ok(out)
+    }
+
+    pub fn symbol_file_count(&self) -> Result<usize> {
+        let n: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM file_symbols", [], |r| r.get(0))?;
+        Ok(n as usize)
     }
 
     /// Candidate near-duplicates via LSH banding, then exact signature compare.

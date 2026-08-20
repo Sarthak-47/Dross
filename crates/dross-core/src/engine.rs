@@ -270,24 +270,43 @@ pub fn source_files(root: &Path, config: &Config) -> Vec<(PathBuf, Language)> {
 impl<'a> CheckContext<'a> {
     /// Builds the symbol table lazily from the changed files plus, when a repo
     /// root is available, the rest of the repository.
+    /// Builds the repo-wide symbol table.
+    ///
+    /// Prefers the cached symbols in the index. Rebuilding by re-parsing every
+    /// file made a one-file check take seconds on a large repository, which is
+    /// disqualifying for a pre-commit hook. Falls back to a full walk when no
+    /// index exists, so the checks still work before `dross index` has run.
     pub fn symbols(&self) -> SymbolTable {
         let mut table = SymbolTable::new();
-        let config = Config::default();
 
-        // Changed files are added from their post-image parse, not from disk:
-        // staged content may differ from the working tree, and adding a file
-        // twice would double-count its call sites and suppress findings that
-        // depend on exact counts.
-        let changed: std::collections::HashSet<&Path> =
-            self.diffs.iter().map(|d| d.path.as_path()).collect();
+        // Changed files are supplied from their post-image parse, never from
+        // disk or cache: staged content may differ from the working tree, and
+        // counting a file twice would suppress the signals keyed on exact
+        // call-site counts.
+        let changed: std::collections::HashSet<PathBuf> =
+            self.diffs.iter().map(|d| d.path.clone()).collect();
 
-        for (path, language) in source_files(self.repo_root, &config) {
-            let relative = path.strip_prefix(self.repo_root).unwrap_or(&path);
-            if changed.contains(relative) {
-                continue;
-            }
-            if let Ok(source) = std::fs::read_to_string(&path) {
-                table.add_file(relative, language, &source);
+        let loaded_from_cache = match self.index {
+            Some(index) => match index.load_symbols(&changed) {
+                Ok(entries) if !entries.is_empty() => {
+                    table.add_many(entries.iter().map(|(p, s)| (p.as_path(), s.clone())));
+                    true
+                }
+                _ => false,
+            },
+            None => false,
+        };
+
+        if !loaded_from_cache {
+            let config = Config::default();
+            for (path, language) in source_files(self.repo_root, &config) {
+                let relative = path.strip_prefix(self.repo_root).unwrap_or(&path);
+                if changed.contains(relative) {
+                    continue;
+                }
+                if let Ok(source) = std::fs::read_to_string(&path) {
+                    table.add_file(relative, language, &source);
+                }
             }
         }
 
@@ -475,6 +494,67 @@ mod tests {
                 .any(|f| f.check == crate::finding::CheckId::StructuralClone),
             "a permissive threshold must surface the near-duplicate"
         );
+    }
+
+    /// The cached symbol path must agree with the full-walk path. The cache
+    /// exists purely for speed — a one-file check on a 3000-file repository
+    /// went from ~2.9s to ~35ms — and an optimization that quietly changes
+    /// findings would be worse than the slow version.
+    #[test]
+    fn cached_symbols_agree_with_a_full_walk() {
+        use crate::index::FingerprintIndex;
+
+        let case = std::env::temp_dir().join(format!(
+            "dross-symcache-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&case);
+        std::fs::create_dir_all(&case).unwrap();
+
+        // `helper` is called once from an existing file, so the wrapper in the
+        // changed file must NOT be reported as a single-call pass-through.
+        // Getting this right depends on the call site being visible, which is
+        // exactly what the cache has to preserve.
+        let existing = "function helper(x) { return inner(x); }
+helper(1);
+helper(2);
+";
+        std::fs::write(case.join("existing.js"), existing).unwrap();
+
+        let changed_src = "function wrapper(id) { return helper(id); }
+wrapper(7);
+";
+        let diffs = vec![diff_of("changed.js", changed_src, Language::JavaScript)];
+        let authorship = AuthorshipMap::new();
+
+        // Uncached: no index, so symbols come from walking the directory.
+        let config = Config::default();
+        let walk_ctx = CheckContext::new(&case, &diffs, &authorship, None, &config);
+        let walked = walk_ctx.symbols();
+
+        // Cached: the same file indexed, symbols loaded from SQLite.
+        let mut index = FingerprintIndex::open_in_memory().unwrap();
+        index
+            .index_file(Path::new("existing.js"), Language::JavaScript, existing)
+            .unwrap();
+        let cached_ctx = CheckContext::new(&case, &diffs, &authorship, Some(&index), &config);
+        let cached = cached_ctx.symbols();
+
+        for name in ["helper", "wrapper", "inner"] {
+            assert_eq!(
+                walked.call_site_count(name),
+                cached.call_site_count(name),
+                "call-site count for `{name}` diverged between walk and cache"
+            );
+            assert_eq!(
+                walked.is_ambiguous(name),
+                cached.is_ambiguous(name),
+                "ambiguity for `{name}` diverged between walk and cache"
+            );
+        }
+
+        std::fs::remove_dir_all(&case).ok();
     }
 
     #[test]
