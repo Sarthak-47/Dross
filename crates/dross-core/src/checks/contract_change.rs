@@ -28,25 +28,48 @@ impl Check for ContractChangeCheck {
                 continue;
             };
 
-            let old_funcs: HashMap<String, FunctionDef> = old_parsed
-                .functions()
-                .into_iter()
-                .filter_map(|f| f.qualified_name().map(|n| (n, f)))
-                .collect();
+            // A name that appears more than once in a revision cannot be
+            // paired confidently: `@overload` stubs, nested closures, and
+            // shadowed helpers all share a qualified name. Collapsing them
+            // into one entry made every variant get compared against an
+            // arbitrary sibling, which produced thousands of bogus
+            // "type changed" and "parameter added" findings across the
+            // benchmark corpus. Ambiguity costs recall, never precision.
+            let old_funcs = index_unique(old_parsed.functions());
+            let new_funcs = index_unique(new_parsed.functions());
 
-            for new_func in new_parsed.functions() {
-                let Some(name) = new_func.qualified_name() else {
+            for (name, new_func) in &new_funcs {
+                let Some(old_func) = old_funcs.get(name) else {
                     continue;
                 };
-                let Some(old_func) = old_funcs.get(&name) else {
-                    continue;
-                };
-                findings.extend(compare(&file.path, &name, old_func, &new_func));
+                findings.extend(compare(&file.path, name, old_func, new_func));
             }
         }
 
         findings
     }
+}
+
+/// Indexes functions by qualified name, dropping every name that occurs more
+/// than once. Overload sets and shadowed definitions are unpairable, so they
+/// are excluded rather than matched arbitrarily.
+fn index_unique(functions: Vec<FunctionDef>) -> HashMap<String, FunctionDef> {
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    for f in &functions {
+        if let Some(name) = f.qualified_name() {
+            *counts.entry(name).or_insert(0) += 1;
+        }
+    }
+    functions
+        .into_iter()
+        .filter_map(|f| {
+            let name = f.qualified_name()?;
+            if counts.get(&name).copied().unwrap_or(0) > 1 {
+                return None;
+            }
+            Some((name, f))
+        })
+        .collect()
 }
 
 fn compare(
@@ -262,6 +285,50 @@ mod tests {
             "function f(a: string, b: number) { return 1; }",
         );
         assert!(signals(&f).contains(&"optional-parameter-became-required"));
+    }
+
+    /// Regression: overload sets and shadowed helpers share a qualified name.
+    /// Indexing them into a map collapsed each set to one arbitrary entry, so
+    /// every sibling was compared against the wrong counterpart. Across the
+    /// benchmark corpus this produced thousands of bogus findings — nearly
+    /// half of everything the tool reported.
+    #[test]
+    fn duplicate_qualified_names_are_not_paired() {
+        let overloads = "@overload
+def instance_of(type: type[T]) -> int: ...
+@overload
+def instance_of(type: tuple[type[T]]) -> str: ...
+";
+        let changed = "@overload
+def instance_of(type: tuple[type[T]]) -> str: ...
+@overload
+def instance_of(type: type[T]) -> int: ...
+";
+        let old_file = ParsedFile::parse(Language::Python, overloads).unwrap();
+        let new_file = ParsedFile::parse(Language::Python, changed).unwrap();
+
+        let old_index = index_unique(old_file.functions());
+        let new_index = index_unique(new_file.functions());
+
+        assert!(
+            old_index.is_empty() && new_index.is_empty(),
+            "a name declared twice must be excluded, not paired arbitrarily"
+        );
+    }
+
+    #[test]
+    fn a_uniquely_named_function_is_still_paired() {
+        let index = index_unique(
+            ParsedFile::parse(
+                Language::Python,
+                "def only(a):
+    return a
+",
+            )
+            .unwrap()
+            .functions(),
+        );
+        assert!(index.contains_key("only"));
     }
 
     #[test]
