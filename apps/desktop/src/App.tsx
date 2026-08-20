@@ -18,13 +18,18 @@ import {
   SEED_SKIPPED,
   SIGNALS,
 } from "./fixtures";
+import { applyConfig, groupHistory, toConfig } from "./settingsSync";
 import type {
   AdapterStatus,
   CheckRow,
   ConnectionCard,
   IndexProgress,
+  DrossConfig,
+  HistoryBar,
+  HistoryRow,
   Report,
   RepositoryInfo,
+  RiskEntry,
   SeedFinding,
   Severity,
   SignalRow,
@@ -62,6 +67,8 @@ export default function App() {
   const [zThreshold, setZThreshold] = useState(2.5);
   const [minSeverity, setMinSeverity] = useState<Severity>("info");
   const [commitGate, setCommitGate] = useState<"advisory" | "block">("advisory");
+  const [config, setConfig] = useState<DrossConfig | null>(null);
+  const [history, setHistory] = useState<RiskEntry[] | null>(null);
 
   useEffect(() => {
     // Outside a Tauri window the event bridge is absent; degrade to no
@@ -74,10 +81,31 @@ export default function App() {
     };
   }, []);
 
-  useEffect(() => {
-    api.currentRepository().then(setRepo).catch(() => undefined);
-    api.listConnections().then(setAdapters).catch(() => undefined);
+  const loadRepoState = useCallback(async () => {
+    const stored = await api.getConfig().catch(() => null);
+    if (stored) {
+      setConfig(stored);
+      const applied = applyConfig(stored, SIGNALS, CHECKS);
+      setSignals(applied.signals);
+      setChecks(applied.checks);
+      setCloneThreshold(stored.clone_threshold);
+      setZThreshold(stored.complexity_z_threshold);
+      setMinSeverity(stored.min_severity);
+      setCommitGate(stored.block_at ? "block" : "advisory");
+    }
+    setAdapters(await api.listConnections().catch(() => null));
+    setHistory(await api.riskHistory(400).catch(() => null));
   }, []);
+
+  useEffect(() => {
+    api
+      .currentRepository()
+      .then((info) => {
+        setRepo(info);
+        void loadRepoState();
+      })
+      .catch(() => undefined);
+  }, [loadRepoState]);
 
   const guard = useCallback(
     async <T,>(label: string, action: () => Promise<T>): Promise<T | null> => {
@@ -103,6 +131,7 @@ export default function App() {
     if (result) {
       setReport(result);
       setSelected(0);
+      setHistory(await api.riskHistory(400).catch(() => null));
     }
   }, [guard, target]);
 
@@ -118,12 +147,38 @@ export default function App() {
     if (!info) return;
     setRepo(info);
     setReport(null);
-    setAdapters(await api.listConnections().catch(() => null));
-  }, [guard]);
+    await loadRepoState();
+  }, [guard, loadRepoState]);
 
   const openInEditor = useCallback((location: string) => {
-    void api.openInEditor(location).catch(() => undefined);
+    void api.openInEditor(location).catch((e) => setError(String(e)));
   }, []);
+
+  /* Applies immediately: each change is written to .dross.json so the CLI and
+   * any installed hook read the same settings. */
+  const persist = useCallback(
+    (next: Partial<{
+      signals: SignalRow[];
+      checks: CheckRow[];
+      cloneThreshold: number;
+      zThreshold: number;
+      minSeverity: Severity;
+      commitGate: "advisory" | "block";
+    }>) => {
+      if (!config) return;
+      const merged = toConfig(config, {
+        signals: next.signals ?? signals,
+        checks: next.checks ?? checks,
+        cloneThreshold: next.cloneThreshold ?? cloneThreshold,
+        zThreshold: next.zThreshold ?? zThreshold,
+        minSeverity: next.minSeverity ?? minSeverity,
+        commitGate: next.commitGate ?? commitGate,
+      });
+      setConfig(merged);
+      void api.setConfig(merged).catch((e) => setError(String(e)));
+    },
+    [config, signals, checks, cloneThreshold, zThreshold, minSeverity, commitGate],
+  );
 
   /** Real findings once analysed; the design's seed data before that. */
   const shown = useMemo<{
@@ -191,6 +246,37 @@ export default function App() {
 
   const connected = connectionCards.filter((c) => c.status === "connected").length;
 
+  /* The log stores one row per signal per run, so runs are recovered by
+   * grouping on the timestamp. Before any run exists the design's seed series
+   * stands in, so the view is never an empty frame. */
+  const runs = useMemo(() => (history ? groupHistory(history) : []), [history]);
+
+  const historyBars: HistoryBar[] = useMemo(() => {
+    if (runs.length === 0) return HISTORY_BARS;
+    return runs.map((run) => [
+      run.error,
+      run.warning,
+      run.info,
+      run.recordedAt.slice(8, 10),
+    ]);
+  }, [runs]);
+
+  const historyRows: HistoryRow[] = useMemo(() => {
+    if (runs.length === 0) return HISTORY_ROWS;
+    return [...runs]
+      .reverse()
+      .slice(0, 6)
+      .map((run) => ({
+        when: run.recordedAt.replace("T", " · ").slice(0, 16),
+        sha: "—",
+        subject: `${run.error + run.warning + run.info} findings recorded`,
+        e: run.error,
+        w: run.warning,
+        i: run.info,
+        risk: Math.min(run.error * 25 + run.warning * 8 + run.info * 2, 100),
+      }));
+  }, [runs]);
+
   const facts = useCallback(
     (extra: Fact[]): Fact[] => extra,
     [],
@@ -221,8 +307,8 @@ export default function App() {
     if (tab === "history") {
       return (
         <RiskHistory
-          bars={HISTORY_BARS}
-          rows={HISTORY_ROWS}
+          bars={historyBars}
+          rows={historyRows}
           logPath={repo ? `${repo.root}/.dross/index.sqlite` : "~/.dross/index.sqlite"}
         />
       );
@@ -242,18 +328,32 @@ export default function App() {
           labelledDiffs={157}
           rounds={3}
           onExpand={setExpanded}
-          onToggleSignal={(name, on) =>
-            setSignals((prev) =>
-              prev.map((s) => (s.name === name ? { ...s, on } : s)),
-            )
-          }
-          onToggleCheck={(name, on) =>
-            setChecks((prev) => prev.map((c) => (c.name === name ? { ...c, on } : c)))
-          }
-          onCloneThreshold={setCloneThreshold}
-          onZThreshold={setZThreshold}
-          onMinSeverity={setMinSeverity}
-          onCommitGate={setCommitGate}
+          onToggleSignal={(name, on) => {
+            const next = signals.map((s) => (s.name === name ? { ...s, on } : s));
+            setSignals(next);
+            persist({ signals: next });
+          }}
+          onToggleCheck={(name, on) => {
+            const next = checks.map((c) => (c.name === name ? { ...c, on } : c));
+            setChecks(next);
+            persist({ checks: next });
+          }}
+          onCloneThreshold={(value) => {
+            setCloneThreshold(value);
+            persist({ cloneThreshold: value });
+          }}
+          onZThreshold={(value) => {
+            setZThreshold(value);
+            persist({ zThreshold: value });
+          }}
+          onMinSeverity={(value) => {
+            setMinSeverity(value);
+            persist({ minSeverity: value });
+          }}
+          onCommitGate={(value) => {
+            setCommitGate(value);
+            persist({ commitGate: value });
+          }}
         />
       );
     }
@@ -380,7 +480,7 @@ export default function App() {
     <div className="app">
       <Header
         repo={repo}
-        branch={null}
+        branch={repo?.branch ?? null}
         target={target}
         busy={busy}
         progress={progress}

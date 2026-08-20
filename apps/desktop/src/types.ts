@@ -50,6 +50,8 @@ export interface Report {
 export interface RepositoryInfo {
   root: string;
   name: string;
+  /** Checked-out branch, or null on a detached HEAD. */
+  branch: string | null;
   indexBuilt: boolean;
   indexedFunctions: number;
   baselineSamples: number;

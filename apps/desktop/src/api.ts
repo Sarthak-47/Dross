@@ -55,11 +55,7 @@ export const api = {
     return typeof picked === "string" ? picked : null;
   },
 
-  /**
-   * Opens a `file:line` reference in the user's editor. Not yet wired to a
-   * backend command, so it resolves quietly rather than throwing into the UI.
-   */
-  openInEditor: async (_location: string): Promise<void> => {
-    return;
-  },
+  /** Opens a `file:line` reference in the user's editor. */
+  openInEditor: (location: string) =>
+    invoke<void>("open_in_editor", { location }),
 };

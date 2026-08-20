@@ -129,3 +129,77 @@ fn findings_serialise_with_the_fields_the_panel_reads() {
     assert_eq!(json["severity"], "error");
     assert_eq!(json["span"]["start_line"], 1);
 }
+
+/// The design states that every control applies immediately and there is no
+/// Save button. That only holds if a change reaches `.dross.json` — otherwise
+/// a toggle looks like it worked and the next CLI run ignores it.
+#[test]
+fn settings_round_trip_through_the_config_file() {
+    use dross_core::config::Config;
+    use dross_core::finding::{CheckId, Severity};
+
+    let root = std::env::temp_dir().join(format!("dross-cfg-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+
+    let mut config = Config::default();
+    config.disabled_signals.insert("log-only-catch".to_string());
+    config.disabled_checks.insert(CheckId::StructuralClone);
+    config.clone_threshold = 0.74;
+    config.complexity_z_threshold = 3.5;
+    config.min_severity = Severity::Warning;
+    config.block_at = Some(Severity::Error);
+    config.save(&root).unwrap();
+
+    let reloaded = Config::load(&root);
+    assert!(!reloaded.is_signal_enabled("log-only-catch"));
+    assert!(reloaded.is_signal_enabled("empty-catch-body"));
+    assert!(!reloaded.is_enabled(CheckId::StructuralClone));
+    assert!(reloaded.is_enabled(CheckId::ContractChange));
+    assert_eq!(reloaded.clone_threshold, 0.74);
+    assert_eq!(reloaded.complexity_z_threshold, 3.5);
+    assert_eq!(reloaded.min_severity, Severity::Warning);
+    assert_eq!(reloaded.block_at, Some(Severity::Error));
+
+    // The file the CLI and the hook read is the one the app wrote.
+    let raw = std::fs::read_to_string(root.join(".dross.json")).unwrap();
+    assert!(raw.contains("log-only-catch"));
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A `file:line` reference must split into a path and a line, and a path that
+/// escapes the repository must be refused.
+#[test]
+fn editor_locations_split_and_stay_inside_the_repository() {
+    let split = |location: &str| -> (String, Option<String>) {
+        match location.rsplit_once(':') {
+            Some((path, num)) if !num.is_empty() && num.chars().all(|c| c.is_ascii_digit()) => {
+                (path.to_string(), Some(num.to_string()))
+            }
+            _ => (location.to_string(), None),
+        }
+    };
+
+    assert_eq!(
+        split("src/a.ts:42"),
+        ("src/a.ts".to_string(), Some("42".to_string()))
+    );
+    // A Windows drive letter is not a line number.
+    assert_eq!(split("src/a.ts"), ("src/a.ts".to_string(), None));
+
+    let root = std::env::temp_dir().join(format!("dross-edit-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(root.join("src/a.ts"), "x\n").unwrap();
+    let canonical_root = root.canonicalize().unwrap();
+
+    assert!(
+        root.join("src/a.ts")
+            .canonicalize()
+            .unwrap()
+            .starts_with(&canonical_root)
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}

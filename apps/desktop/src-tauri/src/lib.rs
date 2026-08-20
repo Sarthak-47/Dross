@@ -36,6 +36,7 @@ pub fn run() {
             commands::set_config,
             commands::override_authorship,
             commands::file_source,
+            commands::open_in_editor,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

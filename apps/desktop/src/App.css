@@ -459,6 +459,7 @@ button {
 }
 
 .finding {
+  cursor: pointer;
   display: flex;
   gap: 10px;
   width: 100%;
@@ -1014,6 +1015,7 @@ button {
 }
 
 .signals__row {
+  cursor: pointer;
   display: grid;
   grid-template-columns: 1fr 92px 96px 66px;
   align-items: center;
@@ -1027,6 +1029,7 @@ button {
 }
 
 .signals__row--head {
+  cursor: default;
   background: var(--panel2);
   font-family: var(--mono);
   font-size: 9.5px;

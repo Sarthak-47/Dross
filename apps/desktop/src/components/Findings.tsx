@@ -110,12 +110,22 @@ export function Findings({
         {findings.map((finding, index) => {
           const isSelected = index === selected;
           return (
-            <button
+            /* A row that contains buttons (the locations) cannot itself be a
+               button — nesting them is invalid HTML. It is a div with the
+               button role and keyboard handling instead. */
+            <div
               key={`${finding.location}-${index}`}
-              type="button"
+              role="button"
+              tabIndex={0}
               className={`finding finding--${finding.severity}`}
               aria-current={isSelected}
               onClick={() => onSelect(index)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onSelect(index);
+                }
+              }}
             >
               <span className={`sq sq--${finding.severity}`} />
               <span className="finding__body">
@@ -155,7 +165,7 @@ export function Findings({
                   </span>
                 )}
               </span>
-            </button>
+            </div>
           );
         })}
 

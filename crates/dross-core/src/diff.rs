@@ -96,6 +96,18 @@ impl Repo {
             .context("bare repositories are not supported")
     }
 
+    /// The checked-out branch name, or `None` on a detached HEAD or an
+    /// unborn branch.
+    pub fn branch(&self) -> Option<String> {
+        let head = self.inner.head().ok()?;
+        if !head.is_branch() {
+            return None;
+        }
+        // shorthand() is fallible in this git2 version, not optional.
+        let name = head.shorthand().ok()?;
+        Some(name.to_string())
+    }
+
     pub fn inner(&self) -> &git2::Repository {
         &self.inner
     }

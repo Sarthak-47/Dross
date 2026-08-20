@@ -77,13 +77,22 @@ export function Settings({
                 const open = expanded === signal.name;
                 return (
                   <div key={signal.name}>
-                    <button
-                      type="button"
+                    {/* Holds the toggle, so it is a div with the button role
+                        rather than a button — nested buttons are invalid. */}
+                    <div
+                      role="button"
+                      tabIndex={0}
                       className={
                         open ? "signals__row signals__row--open" : "signals__row"
                       }
                       aria-expanded={open}
                       onClick={() => onExpand(open ? null : signal.name)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          onExpand(open ? null : signal.name);
+                        }
+                      }}
                     >
                       <span
                         className={
@@ -120,7 +129,7 @@ export function Settings({
                         label={`${signal.name} enabled`}
                         onChange={(next) => onToggleSignal(signal.name, next)}
                       />
-                    </button>
+                    </div>
 
                     {open && (
                       <div className="signals__detail">

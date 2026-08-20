@@ -20,6 +20,8 @@ type CmdResult<T> = Result<T, String>;
 pub struct RepositoryInfo {
     pub root: PathBuf,
     pub name: String,
+    /// Checked-out branch, or None on a detached HEAD.
+    pub branch: Option<String>,
     pub index_built: bool,
     pub indexed_functions: usize,
     pub baseline_samples: usize,
@@ -40,6 +42,7 @@ pub fn open_repository(path: String, state: State<'_, AppState>) -> CmdResult<Re
 #[tauri::command]
 pub fn current_repository(state: State<'_, AppState>) -> CmdResult<RepositoryInfo> {
     let root = state.require_repo()?;
+    let branch = Repo::open(&root).ok().and_then(|r| r.branch());
     let index = state.open_index().ok();
     let indexed_functions = index
         .as_ref()
@@ -60,6 +63,7 @@ pub fn current_repository(state: State<'_, AppState>) -> CmdResult<RepositoryInf
         indexed_functions,
         baseline_samples,
         watcher_active: state.watcher_active(),
+        branch,
         root,
     })
 }
@@ -223,6 +227,78 @@ pub fn override_authorship(args: AuthorshipOverride, state: State<'_, AppState>)
         args.is_ai,
     );
     Ok(())
+}
+
+/// Opens `file:line` in the user's editor.
+///
+/// Tries $VISUAL and $EDITOR first, then a small list of editors that accept a
+/// line argument, then the platform's default handler. The path is confined to
+/// the open repository for the same reason `file_source` is: this command
+/// takes a path from the renderer.
+#[tauri::command]
+pub fn open_in_editor(location: String, state: State<'_, AppState>) -> CmdResult<()> {
+    let root = state.require_repo()?;
+
+    // `src/a.ts:42` — split off a trailing line number if present.
+    let (rel, line) = match location.rsplit_once(':') {
+        Some((path, num)) if num.chars().all(|c| c.is_ascii_digit()) && !num.is_empty() => {
+            (path, Some(num.to_string()))
+        }
+        _ => (location.as_str(), None),
+    };
+
+    let canonical_root = root.canonicalize().map_err(|e| e.to_string())?;
+    let target = root
+        .join(rel)
+        .canonicalize()
+        .map_err(|e| format!("cannot open {rel}: {e}"))?;
+    if !target.starts_with(&canonical_root) {
+        return Err(format!(
+            "refusing to open {rel}: outside the open repository"
+        ));
+    }
+
+    let path = target.display().to_string();
+    let line = line.unwrap_or_else(|| "1".to_string());
+
+    let configured = std::env::var("VISUAL")
+        .or_else(|_| std::env::var("EDITOR"))
+        .ok();
+    let mut candidates: Vec<(String, Vec<String>)> = Vec::new();
+    if let Some(editor) = configured {
+        candidates.push((editor, vec![format!("+{line}"), path.clone()]));
+    }
+    for editor in ["code", "subl", "zed"] {
+        candidates.push((
+            editor.to_string(),
+            vec!["--goto".into(), format!("{path}:{line}")],
+        ));
+    }
+
+    for (program, args) in candidates {
+        if std::process::Command::new(&program)
+            .args(&args)
+            .spawn()
+            .is_ok()
+        {
+            return Ok(());
+        }
+    }
+
+    // Nothing editor-shaped worked; hand it to the platform.
+    let opened = if cfg!(target_os = "windows") {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", &path])
+            .spawn()
+    } else if cfg!(target_os = "macos") {
+        std::process::Command::new("open").arg(&path).spawn()
+    } else {
+        std::process::Command::new("xdg-open").arg(&path).spawn()
+    };
+
+    opened
+        .map(|_| ())
+        .map_err(|e| format!("no editor could open {rel}: {e}"))
 }
 
 /// Reads a file's current contents for the diff view. Confined to the open
