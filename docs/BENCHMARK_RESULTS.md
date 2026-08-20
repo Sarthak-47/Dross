@@ -14,7 +14,12 @@ would make the last one unverifiable.
 |---|---|---|---|
 | Overall precision | 32.4% | 50.5% | **73.9%** (66–80%) |
 | Precision, signals that ship enabled | — | 56.0% | **87.2%** |
-| Findings across the corpus | 9,201 | 5,146 | **2,989** |
+| Findings across the corpus | 9,201 | 5,146 | **2,351** |
+
+Round 5 re-ran the corpus after the union-normalisation fix and with the two
+newly disabled signals in effect: 2,351 findings, 74% below the starting point.
+The union fix alone removed 56 type-change findings that were reorderings of
+the same union.
 
 The two figures differ because five signals measured badly enough to ship
 disabled. 73.9% is what the code produces with everything switched on; 87.2%
