@@ -73,6 +73,20 @@ dross connections install git
 
 Other commands: `dross check --worktree` for live edits, `dross history` for the risk trend, `dross init` to write a config file, and `--format json` or `--format compact` on any check for machine-readable output.
 
+## Performance
+
+A pre-commit check has to feel instant or it gets uninstalled, so this is
+measured rather than assumed. On a generated 3000-file TypeScript repository,
+checking one changed file takes **~35ms**.
+
+The index caches per-file symbols and fingerprints. Before that cache existed
+the same check took 2.9 seconds, because the repo-wide symbol table was rebuilt
+by re-parsing every file on every run. Build the index once with `dross index`;
+checks read from it afterwards.
+
+Without an index the checks still run, falling back to a full walk — correct,
+but slow on a large tree, and clone detection is reported as skipped.
+
 ## Integrations
 
 | Tool | Mechanism | Caveats |
