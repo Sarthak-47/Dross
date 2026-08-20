@@ -55,33 +55,47 @@ pub fn is_non_production_path(path: &std::path::Path) -> bool {
     if is_test_path(path) {
         return true;
     }
-    let s = path
-        .to_string_lossy()
-        .replace('\\', "/")
-        .to_ascii_lowercase();
-    s.contains("/examples/")
-        || s.starts_with("examples/")
-        || s.contains("/example/")
-        || s.contains("/e2e/")
-        || s.contains("/bench/")
-        || s.contains("/benchmarks/")
-        || s.contains("/perf-testing/")
+    // A leading slash is prepended so a directory at the root of the
+    // repository matches the same way as one nested inside it. Without it
+    // `test/cache.ts` and `perf-testing/read-cpuprofile.js` slipped through
+    // while `packages/x/test/cache.ts` was caught.
+    let s = format!(
+        "/{}",
+        path.to_string_lossy()
+            .replace('\\', "/")
+            .to_ascii_lowercase()
+            .trim_start_matches('/')
+    );
+    [
+        "/examples/",
+        "/example/",
+        "/e2e/",
+        "/bench/",
+        "/benchmarks/",
+        "/perf-testing/",
+        "/docs/",
+        "/fixtures/",
+        "/scripts/",
+        "/demo/",
+    ]
+    .iter()
+    .any(|d| s.contains(d))
         || s.contains("/playground")
-        || s.contains("/docs/")
-        || s.starts_with("docs/")
-        || s.contains("/fixtures/")
-        || s.contains("/scripts/")
 }
 
 pub fn is_test_path(path: &std::path::Path) -> bool {
-    let s = path
-        .to_string_lossy()
-        .replace('\\', "/")
-        .to_ascii_lowercase();
+    let s = format!(
+        "/{}",
+        path.to_string_lossy()
+            .replace('\\', "/")
+            .to_ascii_lowercase()
+            .trim_start_matches('/')
+    );
     s.contains(".test.")
         || s.contains(".spec.")
         || s.contains("/tests/")
         || s.contains("/test/")
+        || s.contains("/testing/")
         || s.contains("__tests__")
         || s.rsplit('/').next().is_some_and(|f| f.starts_with("test_"))
         || s.ends_with("_test.py")
@@ -398,6 +412,33 @@ mod tests {
             "def test_x(self):\n    self.assertEqual(slugify('A B'), 'a-b')\n",
         );
         assert!(f.is_empty(), "got {f:?}");
+    }
+
+    #[test]
+    fn recognises_non_production_directories_at_any_depth() {
+        for p in [
+            "test/cache.ts",
+            "packages/x/test/cache.ts",
+            "perf-testing/read-cpuprofile.js",
+            "scripts/prerelease.ts",
+            "examples/app/index.js",
+            "packages/bench/harness.ts",
+        ] {
+            assert!(
+                is_non_production_path(std::path::Path::new(p)),
+                "{p} should be non-production"
+            );
+        }
+        for p in [
+            "src/app.ts",
+            "lib/contest/index.js",
+            "packages/core/src/latest.ts",
+        ] {
+            assert!(
+                !is_non_production_path(std::path::Path::new(p)),
+                "{p} is production code"
+            );
+        }
     }
 
     #[test]
