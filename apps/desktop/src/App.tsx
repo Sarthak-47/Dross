@@ -186,6 +186,8 @@ export default function App() {
     skipped: SkippedRow[];
     risk: number;
   }>(() => {
+    // Seed fixtures exist for design review of the split pane. They are never
+    // shown for a real repository — `view` routes to "unanalyzed" instead.
     if (!report) return DEMO;
     return {
       risk: report.risk_score,
@@ -225,9 +227,15 @@ export default function App() {
     if (!repo) return "norepo";
     if (busy === "Building index") return "building";
     if (!repo.indexBuilt) return "noindex";
-    if (report && report.findings.length === 0) return "clean";
-    if (report && repo.baselineSamples < 30 && report.findings.length === 0)
-      return "smallbase";
+    // A repository with no analysis behind it has no findings to show. The
+    // seed fixtures must never stand in here — presenting invented findings
+    // for somebody's real code would be worse than showing nothing.
+    if (!report) return "unanalyzed";
+    if (report.findings.length === 0) {
+      // Ordered before "clean": a silent complexity signal is the more
+      // specific fact, and the clean state would otherwise swallow it.
+      return repo.baselineSamples < 30 ? "smallbase" : "clean";
+    }
     return "findings";
   }, [repo, busy, report]);
 
@@ -415,6 +423,29 @@ export default function App() {
             { key: "estimated build", value: "one pass over the tree" },
           ])}
           cta={{ label: "Build index", onClick: rebuild, disabled: busy !== null }}
+        />
+      );
+    }
+
+    if (view === "unanalyzed") {
+      return (
+        <EmptyState
+          kicker="ready to analyze"
+          title="Nothing has been analyzed yet."
+          body="Dross reads the diff you are about to commit, not the whole repository. Choose a target and run the checks; the result is deterministic, so the same diff always produces the same findings."
+          facts={facts([
+            { key: "index", value: `${repo?.indexedFunctions.toLocaleString() ?? 0} functions` },
+            {
+              key: "complexity baseline",
+              value:
+                (repo?.baselineSamples ?? 0) >= 30
+                  ? `${repo?.baselineSamples} samples`
+                  : `${repo?.baselineSamples ?? 0} — below minimum`,
+              tone: (repo?.baselineSamples ?? 0) >= 30 ? undefined : "warn",
+            },
+            { key: "target", value: target === "staged" ? "staged changes" : "working tree" },
+          ])}
+          cta={{ label: "Analyze", onClick: analyze, disabled: busy !== null }}
         />
       );
     }

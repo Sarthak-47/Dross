@@ -116,6 +116,7 @@ export type ViewState =
   | "norepo"
   | "noindex"
   | "building"
+  | "unanalyzed"
   | "clean"
   | "findings"
   | "smallbase";
