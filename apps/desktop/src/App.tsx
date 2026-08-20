@@ -517,7 +517,9 @@ export default function App() {
         progress={progress}
         tab={tab}
         counts={{
-          findings: shown.findings.length,
+          // Counts what has actually been found, so the tab does not advertise
+          // seed fixtures for a repository nobody has analysed yet.
+          findings: report ? report.findings.length : 0,
           connections: `${connected}/${connectionCards.length}`,
           history: HISTORY_ROWS.length,
         }}
