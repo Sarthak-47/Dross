@@ -487,10 +487,21 @@ fn encode_signature(sig: &[u64]) -> Vec<u8> {
 }
 
 fn decode_signature(bytes: &[u8]) -> Vec<u64> {
-    bytes
-        .chunks_exact(8)
-        .map(|c| u64::from_le_bytes(c.try_into().unwrap()))
-        .collect()
+    // Written out rather than using `chunks_exact` or `as_chunks`: the former
+    // is linted by newer clippy, and the latter's stabilisation is later than
+    // this workspace's declared MSRV. This form needs neither and has no
+    // fallible conversion to unwrap. A trailing partial chunk cannot occur for
+    // a signature this module wrote, and is ignored rather than panicked on.
+    const WIDTH: usize = size_of::<u64>();
+    let mut out = Vec::with_capacity(bytes.len() / WIDTH);
+    let mut offset = 0;
+    while offset + WIDTH <= bytes.len() {
+        let mut word = [0u8; WIDTH];
+        word.copy_from_slice(&bytes[offset..offset + WIDTH]);
+        out.push(u64::from_le_bytes(word));
+        offset += WIDTH;
+    }
+    out
 }
 
 #[cfg(test)]
