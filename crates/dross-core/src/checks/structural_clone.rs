@@ -87,6 +87,22 @@ impl Check for StructuralCloneCheck {
                 if hits.len() > MAX_ESTABLISHED_TWINS {
                     continue;
                 }
+
+                // Reinvention means someone wrote new logic without knowing the
+                // existing implementation was there — and they would have given
+                // it a different name. A twin with the *same* name is a port, a
+                // monorepo copy, or a framework hook implemented once per
+                // module: `pytest_configure` beside `pytest_configure`,
+                // `readPackageJson` beside `readPackageJson`. Ten of the twelve
+                // sampled clone findings were exactly that shape.
+                //
+                // This costs recall — a genuine duplicate that kept its name is
+                // no longer reported — which is the trade this codebase makes
+                // everywhere resolution is uncertain.
+                let hits: Vec<_> = hits
+                    .into_iter()
+                    .filter(|(twin, _)| twin.name.as_deref() != Some(func_name))
+                    .collect();
                 let Some((twin, similarity)) = hits.into_iter().next() else {
                     continue;
                 };
@@ -224,6 +240,73 @@ mod tests {
             run_with(MAX_ESTABLISHED_TWINS + 2),
             0,
             "a shape repeated across the repository is a convention, not a clone"
+        );
+    }
+
+    #[test]
+    fn a_twin_with_the_same_name_is_not_reinvention() {
+        use crate::authorship::AuthorshipMap;
+        use crate::config::Config;
+        use crate::diff::{ChangeKind, FileDiff, Hunk};
+        use crate::index::FingerprintIndex;
+        use crate::lang::Language;
+        use std::path::{Path, PathBuf};
+
+        let body = |name: &str| {
+            format!(
+                "export function {name}(items) {{
+  let total = 0;
+  for (const item of items) {{
+    total += item.price * item.quantity;
+  }}
+  if (total > 10) {{
+    return total * 2;
+  }}
+  return total;
+}}
+"
+            )
+        };
+
+        let run = |candidate_name: &str| {
+            let src = body(candidate_name);
+            let mut index = FingerprintIndex::open_in_memory().unwrap();
+            index
+                .index_file(
+                    Path::new("other.js"),
+                    Language::JavaScript,
+                    &body("computeTotal"),
+                )
+                .unwrap();
+            let diffs = vec![FileDiff {
+                path: PathBuf::from("candidate.js"),
+                old_path: None,
+                kind: ChangeKind::Added,
+                language: Some(Language::JavaScript),
+                hunks: vec![Hunk {
+                    new_start: 1,
+                    new_lines: src.lines().count(),
+                    old_start: 0,
+                    old_lines: 0,
+                }],
+                new_source: Some(src.clone()),
+                old_source: None,
+            }];
+            let authorship = AuthorshipMap::new();
+            let config = Config::default();
+            let ctx = CheckContext::new(Path::new("."), &diffs, &authorship, Some(&index), &config);
+            StructuralCloneCheck.run(&ctx).len()
+        };
+
+        assert_eq!(
+            run("sumBasket"),
+            1,
+            "a differently named duplicate is reinvention"
+        );
+        assert_eq!(
+            run("computeTotal"),
+            0,
+            "a same-named twin is a copy or a port"
         );
     }
 
