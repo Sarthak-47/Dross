@@ -102,7 +102,17 @@ Every adapter merges into existing configuration rather than overwriting it, tag
 
 ## Desktop app
 
-The Tauri app is the primary surface: findings with inline source context, a Connections panel, and a risk-history trend.
+The Tauri app is the primary surface. Findings sit in a split pane with the
+exact source lines each one refers to and a plain-language note on how it was
+measured. The Connections panel prints each integration's own limitations on
+its card rather than hiding them in docs. Settings shows every signal's
+**measured precision beside its toggle**, along with the reason each disabled
+one was switched off — the numbers are the ones from the benchmark, not
+marketing.
+
+Checks that could not run appear inline with their reason, heuristic authorship
+is labelled heuristic, and the status bar states `no network calls · 0 bytes
+sent`. The fonts are self-hosted so that claim stays true.
 
 ```bash
 npm install --prefix apps/desktop
