@@ -26,6 +26,18 @@ fn is_constructor(name: &str) -> bool {
     matches!(name, "__init__" | "constructor" | "__new__")
 }
 
+/// A shape that already exists this many times elsewhere is an established
+/// convention rather than an accidental reinvention, and reporting it buries
+/// the real findings.
+///
+/// This is the same idea the complexity baseline uses: judge the change
+/// against how this repository actually works. In the benchmark corpus,
+/// date-fns has ~200 locale directories each defining a structurally identical
+/// `formatDistance`, and Flask defines four parallel `template_*` decorator
+/// families. Both are deliberate parallel structure, and between them they
+/// produced over 1,800 findings no reviewer would act on.
+const MAX_ESTABLISHED_TWINS: usize = 3;
+
 pub struct StructuralCloneCheck;
 
 impl Check for StructuralCloneCheck {
@@ -66,6 +78,9 @@ impl Check for StructuralCloneCheck {
                 let Ok(hits) = index.find_similar(&fp, threshold, Some(&file.path)) else {
                     continue;
                 };
+                if hits.len() > MAX_ESTABLISHED_TWINS {
+                    continue;
+                }
                 let Some((twin, similarity)) = hits.into_iter().next() else {
                     continue;
                 };
@@ -132,6 +147,77 @@ mod tests {
         assert!(
             anonymous.name.is_none(),
             "fixture must produce an unnamed function"
+        );
+    }
+
+    /// A shape that already appears many times is how the codebase works, so
+    /// the check must stay silent; a one-off duplicate must still report.
+    /// Exercised through the real index rather than asserted against the
+    /// constant, so the behaviour is what is tested.
+    #[test]
+    fn established_patterns_are_suppressed_but_one_offs_still_report() {
+        use crate::authorship::AuthorshipMap;
+        use crate::config::Config;
+        use crate::diff::{ChangeKind, FileDiff, Hunk};
+        use crate::index::FingerprintIndex;
+        use crate::lang::Language;
+        use std::path::{Path, PathBuf};
+
+        // Distinct identifiers, identical structure — the locale-file shape.
+        let body = |n: usize| {
+            format!(
+                "export function format{n}(items) {{
+  let total{n} = 0;
+  for (const item of items) {{
+    total{n} += item.price * item.quantity;
+  }}
+  if (total{n} > 10) {{
+    return total{n} * 2;
+  }}
+  return total{n};
+}}
+"
+            )
+        };
+
+        let candidate = body(99);
+        let diffs = vec![FileDiff {
+            path: PathBuf::from("candidate.js"),
+            old_path: None,
+            kind: ChangeKind::Added,
+            language: Some(Language::JavaScript),
+            hunks: vec![Hunk {
+                new_start: 1,
+                new_lines: candidate.lines().count(),
+                old_start: 0,
+                old_lines: 0,
+            }],
+            new_source: Some(candidate.clone()),
+            old_source: None,
+        }];
+
+        let run_with = |copies: usize| {
+            let mut index = FingerprintIndex::open_in_memory().unwrap();
+            for i in 0..copies {
+                index
+                    .index_file(
+                        Path::new(&format!("locale{i}.js")),
+                        Language::JavaScript,
+                        &body(i),
+                    )
+                    .unwrap();
+            }
+            let authorship = AuthorshipMap::new();
+            let config = Config::default();
+            let ctx = CheckContext::new(Path::new("."), &diffs, &authorship, Some(&index), &config);
+            StructuralCloneCheck.run(&ctx).len()
+        };
+
+        assert_eq!(run_with(1), 1, "a single existing twin must be reported");
+        assert_eq!(
+            run_with(MAX_ESTABLISHED_TWINS + 2),
+            0,
+            "a shape repeated across the repository is a convention, not a clone"
         );
     }
 

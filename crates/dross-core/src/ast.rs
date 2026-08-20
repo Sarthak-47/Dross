@@ -122,11 +122,30 @@ impl ParsedFile {
         let variadic = kind.contains("rest")
             || self.text(node).starts_with("...")
             || self.text(node).starts_with('*');
+        // Python's `typed_parameter` exposes no name field, so falling back
+        // to the node's full text yielded names like "ctx: AppContext".
+        // That made every parameter unique and broke name-based alignment
+        // between two revisions.
         let name = node
             .child_by_field_name("pattern")
             .or_else(|| node.child_by_field_name("name"))
             .map(|n| self.text(n).to_string())
-            .unwrap_or_else(|| self.text(node).to_string());
+            .unwrap_or_else(|| {
+                let mut cursor = node.walk();
+                node.named_children(&mut cursor)
+                    .find(|c| c.kind() == "identifier")
+                    .map(|c| self.text(c).to_string())
+                    .unwrap_or_else(|| {
+                        // Last resort: text up to the annotation or default.
+                        let text = self.text(node);
+                        text.split([':', '='])
+                            .next()
+                            .unwrap_or(text)
+                            .trim_start_matches('*')
+                            .trim()
+                            .to_string()
+                    })
+            });
         let ty = node
             .child_by_field_name("type")
             .map(|n| normalize_type(self.text(n)));
@@ -286,6 +305,18 @@ mod tests {
         assert_eq!(f.params[0].ty.as_deref(), Some("number"));
         assert!(f.params[1].optional);
         assert_eq!(f.return_type.as_deref(), Some("number"));
+    }
+
+    #[test]
+    fn python_parameter_names_exclude_their_annotation() {
+        let src = "def f(self, ctx: AppContext, context: dict[str, t.Any] = None):
+    return ctx
+";
+        let file = ParsedFile::parse(Language::Python, src).unwrap();
+        let f = &file.functions()[0];
+        let names: Vec<&str> = f.params.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, vec!["self", "ctx", "context"]);
+        assert_eq!(f.params[1].ty.as_deref(), Some("AppContext"));
     }
 
     #[test]

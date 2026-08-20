@@ -140,8 +140,21 @@ fn compare(
         ));
     }
 
-    // Type changes on positionally-matched parameters.
-    for (i, (o, n)) in old.params.iter().zip(&new.params).enumerate() {
+    // Parameters are aligned by name, not position. Positional comparison
+    // reported a cascade of fake type changes whenever a parameter was
+    // inserted: Flask adding a `ctx` argument to its methods produced 350
+    // "parameter #N changed type" findings in one file, none of which
+    // described what actually happened.
+    let old_by_name: HashMap<&str, &Param> =
+        old.params.iter().map(|p| (p.name.as_str(), p)).collect();
+
+    for (i, n) in new.params.iter().enumerate() {
+        let Some(o) = old_by_name.get(n.name.as_str()) else {
+            // Present only in the new revision. A required addition is
+            // already reported above as a count change.
+            continue;
+        };
+
         match (&o.ty, &n.ty) {
             (Some(ot), Some(nt)) if ot != nt => {
                 findings.push(Finding::new(
@@ -149,14 +162,11 @@ fn compare(
                     "parameter-type-changed",
                     Severity::Warning,
                     span.clone(),
+                    format!("`{name}` parameter `{}` changed type: `{ot}` -> `{nt}`", n.name),
                     format!(
-                        "`{name}` parameter #{} changed type: `{ot}` -> `{nt}`",
+                        "Parameter `{}` (position {}) was `{ot}` and is now `{nt}`. This is                          invisible at call sites until they are type-checked.",
+                        n.name,
                         i + 1
-                    ),
-                    format!(
-                        "Parameter `{}` was `{ot}` and is now `{nt}`. This is invisible at \
-                         call sites until they are type-checked.",
-                        n.name
                     ),
                 ));
             }
@@ -172,6 +182,7 @@ fn compare(
             }
             _ => {}
         }
+
         if o.optional && !n.optional {
             findings.push(Finding::new(
                 CheckId::ContractChange,
@@ -329,6 +340,45 @@ def instance_of(type: type[T]) -> int: ...
             .functions(),
         );
         assert!(index.contains_key("only"));
+    }
+
+    /// Regression: inserting a parameter shifted every later position, and
+    /// positional comparison reported each shift as a type change. One Flask
+    /// commit produced 350 such findings in a single file. Only the genuine
+    /// addition should be reported.
+    #[test]
+    fn inserting_a_parameter_does_not_cascade_type_changes() {
+        let f = compare_src(
+            Language::Python,
+            "def update(self, context):
+    return context
+",
+            "def update(self, ctx, context):
+    return context
+",
+        );
+        let signals = signals(&f);
+        assert!(
+            signals.contains(&"required-parameter-added"),
+            "the inserted parameter must still be reported: {signals:?}"
+        );
+        assert!(
+            !signals.contains(&"parameter-type-changed"),
+            "shifting a parameter must not be reported as a type change: {signals:?}"
+        );
+    }
+
+    #[test]
+    fn a_renamed_parameter_is_not_a_type_change() {
+        let f = compare_src(
+            Language::TypeScript,
+            "function f(alpha: string): void {}",
+            "function f(beta: string): void {}",
+        );
+        assert!(
+            !signals(&f).contains(&"parameter-type-changed"),
+            "a rename with an identical type must not report a type change"
+        );
     }
 
     #[test]
