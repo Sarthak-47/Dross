@@ -105,46 +105,13 @@ fn caught_type(file: &ParsedFile, node: Node<'_>) -> Option<String> {
             };
             Some(file.text(type_node).trim().to_string())
         }
+        // `catch (e)` declares a binding, not a type. Falling back to the
+        // binding made every JavaScript handler look narrowly typed.
         _ => node
             .child_by_field_name("parameter")
-            .and_then(|p| p.child_by_field_name("type").or(Some(p)))
+            .and_then(|p| p.child_by_field_name("type"))
             .map(|n| crate::ast::normalize_type(file.text(n))),
     }
-}
-
-/// True when the enclosing function is a predicate or probe — it returns a
-/// boolean literal on the success path too, so returning `false` on failure is
-/// the contract rather than a hidden failure.
-///
-/// Every silent-optimistic-return finding in the benchmark was one of these:
-/// `hasDependency`, `shouldBypassProxy`, zod's IP validators.
-fn encloses_a_predicate(file: &ParsedFile, handler: Node<'_>) -> bool {
-    let mut current = handler.parent();
-    while let Some(node) = current {
-        if crate::ast::is_function_node(file.language, node.kind()) {
-            let mut returns_bool_outside_handler = false;
-            crate::ast::walk(node, |n| {
-                if n.kind() != "return_statement" {
-                    return;
-                }
-                // Ignore returns inside the handler itself.
-                if n.start_byte() >= handler.start_byte() && n.end_byte() <= handler.end_byte() {
-                    return;
-                }
-                let text = file.text(n);
-                if text.contains("true")
-                    || text.contains("false")
-                    || text.contains("True")
-                    || text.contains("False")
-                {
-                    returns_bool_outside_handler = true;
-                }
-            });
-            return returns_bool_outside_handler;
-        }
-        current = node.parent();
-    }
-    false
 }
 
 fn evaluate(file: &ParsedFile, handler: &CatchHandler<'_>, path: &std::path::Path) -> Vec<Finding> {
@@ -158,7 +125,17 @@ fn evaluate(file: &ParsedFile, handler: &CatchHandler<'_>, path: &std::path::Pat
     let stats = body_stats(file, handler.body);
 
     // Signal 1: empty catch body.
-    if stats.is_empty && !stats.is_documented {
+    //
+    // A *narrow* catch that ignores is targeted: scrapy's
+    // `except CannotListenError: pass` while probing ports, pydantic's
+    // `except TypeError: pass`. The author named the one thing they expected.
+    // A broad or untyped catch names nothing, and that is what this is for.
+    let narrow_catch = handler
+        .caught_type
+        .as_deref()
+        .is_some_and(|c| !is_broad_type(file.language, c));
+
+    if stats.is_empty && !stats.is_documented && !narrow_catch {
         findings.push(Finding::new(
             CheckId::SwallowedException,
             "empty-catch-body",
@@ -202,7 +179,6 @@ fn evaluate(file: &ParsedFile, handler: &CatchHandler<'_>, path: &std::path::Pat
     // Signal 4: silent optimistic return.
     if let Some(literal) = stats.returns_literal.as_ref()
         && !stats.surfaces_error()
-        && !encloses_a_predicate(file, handler.node)
     {
         findings.push(Finding::new(
             CheckId::SwallowedException,
@@ -350,6 +326,12 @@ fn body_stats(file: &ParsedFile, body: Option<Node<'_>>) -> BodyStats {
 /// Deliberately narrow: the call has to name an error, or be a conventional
 /// error-first callback. A generic `cleanup()` does not count.
 fn surfaces_error_via_call(text: &str) -> bool {
+    // `console.error` and `logger.error` end in "error" but only write to a
+    // log. Logging is precisely what this check is about, so it never counts
+    // as surfacing.
+    if looks_like_logging(text) {
+        return false;
+    }
     let head = text.split('(').next().unwrap_or(text).to_ascii_lowercase();
     let leaf = head.rsplit('.').next().unwrap_or(&head).to_string();
 
@@ -362,7 +344,8 @@ fn surfaces_error_via_call(text: &str) -> bool {
         }
     }
 
-    if leaf.contains("beforeerror")
+    if leaf.ends_with("error")
+        || leaf.contains("beforeerror")
         || leaf.contains("onerror")
         || leaf.contains("handleerror")
         || leaf.contains("reporterror")
@@ -439,20 +422,17 @@ fn is_error_shaped(text: &str) -> bool {
 }
 
 /// A default/empty value that hides the failure from the caller.
+///
+/// Booleans are deliberately excluded. `return false` from a handler is the
+/// function's answer, not a value shaped like success — there is nothing for it
+/// to be mistaken for. Every finding of this kind in the benchmark was a
+/// predicate saying "no": `hasDependency`, `shouldBypassProxy`, zod's IP
+/// validators, socket.io's payload check. Inspecting the enclosing function
+/// missed `return Boolean(...)` forms; the returned value itself is reliable.
 fn is_default_literal(text: &str) -> bool {
     matches!(
         text.trim(),
-        "null"
-            | "None"
-            | "undefined"
-            | "0"
-            | "-1"
-            | "\"\""
-            | "''"
-            | "[]"
-            | "{}"
-            | "false"
-            | "False"
+        "null" | "None" | "undefined" | "0" | "-1" | "\"\"" | "''" | "[]" | "{}"
     )
 }
 
@@ -517,13 +497,43 @@ mod tests {
         assert!(signals(&f).contains(&"empty-catch-body"));
     }
 
+    /// A narrow `except X: pass` names the one thing the author expected and
+    /// ignores it deliberately. A broad or untyped handler names nothing.
     #[test]
-    fn flags_python_except_pass() {
-        let f = run_on(
+    fn a_narrow_empty_except_is_deliberate_but_a_broad_one_is_not() {
+        let narrow = run_on(
             Language::Python,
-            "try:\n    g()\nexcept ValueError:\n    pass\n",
+            "try:
+    g()
+except ValueError:
+    pass
+",
         );
-        assert_eq!(signals(&f), vec!["empty-catch-body"]);
+        assert!(
+            !signals(&narrow).contains(&"empty-catch-body"),
+            "got {:?}",
+            signals(&narrow)
+        );
+
+        let broad = run_on(
+            Language::Python,
+            "try:
+    g()
+except Exception:
+    pass
+",
+        );
+        assert!(signals(&broad).contains(&"empty-catch-body"));
+
+        let bare = run_on(
+            Language::Python,
+            "try:
+    g()
+except:
+    pass
+",
+        );
+        assert!(signals(&bare).contains(&"empty-catch-body"));
     }
 
     #[test]
@@ -647,9 +657,9 @@ mod tests {
         assert!(signals(&f).contains(&"overly-broad-catch-type"));
     }
 
-    /// Regression: a predicate returning `false` when parsing fails is stating
-    /// its contract, not hiding an error. All twelve sampled
-    /// silent-optimistic-return findings were this shape.
+    /// Regression: a handler returning a boolean is answering, not hiding a
+    /// failure — including `return Boolean(...)` forms that inspecting the
+    /// enclosing function did not catch.
     #[test]
     fn a_predicate_returning_false_on_failure_is_not_a_silent_default() {
         let f = run_on(
