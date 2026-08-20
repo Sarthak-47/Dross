@@ -1,78 +1,83 @@
-import type { AdapterStatus } from "../types";
+import type { ConnectionCard } from "../types";
 
-interface Props {
-  statuses: AdapterStatus[];
-  disabled: boolean;
-  onInstall: (id: string) => void;
-  onUninstall: (id: string) => void;
-}
+const DOT: Record<ConnectionCard["status"], string> = {
+  connected: "dot dot--7 dot--ok",
+  detected: "dot dot--7 dot--warn",
+  "not found": "dot dot--7",
+};
+
+const STATUS_CLASS: Record<ConnectionCard["status"], string> = {
+  connected: "conn__status conn__status--connected",
+  detected: "conn__status conn__status--detected",
+  "not found": "conn__status conn__status--notfound",
+};
 
 export function Connections({
-  statuses,
+  cards,
   disabled,
-  onInstall,
-  onUninstall,
-}: Props) {
-  if (statuses.length === 0) {
-    return (
-      <div className="empty">
-        <p className="dim">Open a repository to detect available integrations.</p>
-      </div>
-    );
-  }
-
+  onToggle,
+}: {
+  cards: ConnectionCard[];
+  disabled: boolean;
+  onToggle: (card: ConnectionCard) => void;
+}) {
   return (
-    <div className="connections">
-      {statuses.map((status) => (
-        <article
-          key={status.id}
-          className={status.installed ? "conn conn-on" : "conn"}
-        >
-          <div className="conn-head">
-            <div>
-              <h3>{status.label}</h3>
-              <span
-                className={
-                  status.installed
-                    ? "state state-on"
-                    : status.detected
-                      ? "state state-detected"
-                      : "state state-off"
-                }
-              >
-                {status.installed
-                  ? "Connected"
-                  : status.detected
-                    ? "Detected"
-                    : "Not found"}
-              </span>
-            </div>
+    <div className="view">
+      <div className="view__head">
+        <h2 className="h">Where authorship comes from</h2>
+        <p className="sub">
+          Dross reads commit trailers and file-write timing that these tools leave
+          behind. It never queries them, and it never sends your diff anywhere.
+        </p>
+      </div>
 
-            <button
-              className={status.installed ? "btn" : "btn btn-primary"}
-              disabled={disabled}
-              onClick={() =>
-                status.installed ? onUninstall(status.id) : onInstall(status.id)
-              }
-            >
-              {status.installed ? "Disconnect" : "Connect"}
-            </button>
-          </div>
+      <div className="conns">
+        {cards.map((card) => {
+          const connected = card.status === "connected";
+          const action = connected
+            ? "Disconnect"
+            : card.status === "detected"
+              ? "Connect"
+              : "Locate config…";
 
-          {status.config_path && (
-            <code className="conn-path">{status.config_path}</code>
-          )}
+          return (
+            <article className="conn" key={card.name}>
+              <div className="conn__body">
+                <div className="conn__top">
+                  <span className={DOT[card.status]} />
+                  <span className="conn__name">{card.name}</span>
+                  <span className={STATUS_CLASS[card.status]}>{card.status}</span>
+                </div>
 
-          {/* Limitations are shown up front rather than buried in docs — a
-              hook that silently does not fire is worse than one you know
-              the boundaries of. */}
-          {status.limitations.map((limitation, i) => (
-            <p key={i} className="conn-note">
-              {limitation}
-            </p>
-          ))}
-        </article>
-      ))}
+                <code className="conn__path">{card.path}</code>
+                <span className="conn__signal">{card.signal}</span>
+
+                <button
+                  type="button"
+                  className={
+                    connected
+                      ? "btn btn--card conn__action"
+                      : "btn btn--card btn--accent conn__action"
+                  }
+                  disabled={disabled}
+                  onClick={() => onToggle(card)}
+                >
+                  {action}
+                </button>
+              </div>
+
+              {/* Every card prints its own limitations. This is a designed
+                  feature, not fine print — it does not move into a tooltip. */}
+              <div className="conn__foot">
+                <span className="micro" style={{ letterSpacing: "0.13em" }}>
+                  known limitation
+                </span>
+                <p className="conn__limit">{card.limitation}</p>
+              </div>
+            </article>
+          );
+        })}
+      </div>
     </div>
   );
 }

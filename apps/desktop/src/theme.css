@@ -1,0 +1,65 @@
+/* Design tokens for the Dross desktop UI.
+ *
+ * Dark and light are peers — nothing here is designed dark-first. Ember is the
+ * only accent hue; warn, info and ok are severity and status signals rather
+ * than decoration.
+ *
+ * Fonts are self-hosted. A tool whose status bar asserts "no network calls"
+ * cannot fetch a typeface at runtime. */
+
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/ibm-plex-mono/600.css";
+
+:root,
+:root[data-theme="dark"] {
+  --desk: #0b0c0e;
+  --bg: #121417;
+  --panel: #171a1e;
+  --panel2: #1c1f24;
+  --raise: #22262c;
+  --line: #282d34;
+  --line-soft: #1f2429;
+  --text: #e7e9ea;
+  --dim: #98a0a8;
+  --faint: #6a7279;
+  --ember: #e0692a;
+  --ember-hi: #f5893f;
+  --ember-dim: #7d3a19;
+  --ember-wash: #2a1a12;
+  --warn: #c79433;
+  --warn-wash: #26200f;
+  --info: #5c8ba3;
+  --info-wash: #14202a;
+  --ok: #6c9a6b;
+}
+
+:root[data-theme="light"] {
+  --desk: #ddd9d2;
+  --bg: #f4f2ee;
+  --panel: #ffffff;
+  --panel2: #efece7;
+  --raise: #e6e2db;
+  --line: #d6d1c8;
+  --line-soft: #e4e0d8;
+  --text: #191c20;
+  --dim: #5b6268;
+  --faint: #878d93;
+  --ember: #b34e18;
+  --ember-hi: #8f3d11;
+  --ember-dim: #d9a684;
+  --ember-wash: #f6e9df;
+  --warn: #8a6512;
+  --warn-wash: #f5eddb;
+  --info: #38657d;
+  --info-wash: #e6eef3;
+  --ok: #4c7a4b;
+}
+
+:root {
+  --sans: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Consolas, monospace;
+}

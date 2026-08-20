@@ -1,4 +1,4 @@
-/* Base reset; component styling lives in App.css. */
+/* Base reset only. Tokens live in theme.css; component styling in App.css. */
 html,
 body,
 #root {

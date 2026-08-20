@@ -1,93 +1,81 @@
-import { useMemo } from "react";
-import type { RiskEntry } from "../types";
+import type { HistoryBar, HistoryRow } from "../types";
 
-interface Props {
-  entries: RiskEntry[];
-}
+/** Height per finding, in pixels, within the 170px band. */
+const UNIT = 11;
 
-export function RiskHistory({ entries }: Props) {
-  const buckets = useMemo(() => groupByDay(entries), [entries]);
-
-  if (entries.length === 0) {
-    return (
-      <div className="empty">
-        <h2>No history yet</h2>
-        <p className="dim">
-          Each analysis run is recorded locally. Run Analyze a few times to
-          build a trend.
-        </p>
-      </div>
-    );
-  }
-
-  const max = Math.max(...buckets.map((b) => b.total), 1);
-
+export function RiskHistory({
+  bars,
+  rows,
+  logPath,
+}: {
+  bars: HistoryBar[];
+  rows: HistoryRow[];
+  logPath: string;
+}) {
   return (
-    <div className="history">
-      <div className="trend" role="img" aria-label="Findings per day">
-        {buckets.map((bucket) => (
-          <div className="trend-col" key={bucket.day} title={`${bucket.day}: ${bucket.total}`}>
-            <div className="trend-stack">
-              {(["error", "warning", "info"] as const).map((sev) => {
-                const value = bucket.bySeverity[sev] ?? 0;
-                if (value === 0) return null;
-                return (
-                  <div
-                    key={sev}
-                    className={`trend-bar trend-${sev}`}
-                    style={{ height: `${(value / max) * 100}%` }}
-                  />
-                );
-              })}
-            </div>
-            <span className="trend-label">{bucket.day.slice(5)}</span>
+    <div className="view">
+      <div className="history">
+        <div className="history__head">
+          <div className="view__head">
+            <h2 className="h">Findings per analysis</h2>
+            <span className="mono-note">
+              local log · {logPath} · last {bars.length} runs
+            </span>
           </div>
-        ))}
-      </div>
 
-      <table className="table">
-        <thead>
-          <tr>
-            <th>When</th>
-            <th>Signal</th>
-            <th>Severity</th>
-            <th className="num">Count</th>
-          </tr>
-        </thead>
-        <tbody>
-          {entries.map((entry, i) => (
-            <tr key={i}>
-              <td className="dim">{entry.recorded_at.replace("T", " ").slice(0, 19)}</td>
-              <td>{entry.signal}</td>
-              <td>
-                <span className={`sev sev-${entry.severity}`}>
-                  {entry.severity}
-                </span>
-              </td>
-              <td className="num">{entry.count}</td>
-            </tr>
+          <div className="legend">
+            {(
+              [
+                ["error", "var(--ember)"],
+                ["warning", "var(--warn)"],
+                ["info", "var(--info)"],
+              ] as const
+            ).map(([label, color]) => (
+              <span className="legend__item" key={label}>
+                <span className="legend__sq" style={{ background: color }} />
+                {label}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Flat bars, no rounding, no gridlines, no axis chrome. */}
+        <div className="chart">
+          {bars.map(([error, warning, info, day]) => (
+            <div className="chart__col" key={day}>
+              <div className="chart__stack">
+                <div style={{ height: info * UNIT, background: "var(--info)" }} />
+                <div style={{ height: warning * UNIT, background: "var(--warn)" }} />
+                <div style={{ height: error * UNIT, background: "var(--ember)" }} />
+              </div>
+              <span className="chart__day">{day}</span>
+            </div>
           ))}
-        </tbody>
-      </table>
+        </div>
+
+        <div className="table">
+          <div className="table__row table__row--head">
+            <span>when</span>
+            <span>commit</span>
+            <span>subject</span>
+            <span>error</span>
+            <span>warn</span>
+            <span>info</span>
+            <span>risk</span>
+          </div>
+          {rows.map((row) => (
+            <div className="table__row" key={row.sha}>
+              <span style={{ color: "var(--dim)" }}>{row.when}</span>
+              <span style={{ color: "var(--ember)" }}>{row.sha}</span>
+              <span className="table__subject">{row.subject}</span>
+              <span style={{ color: "var(--text)" }}>{row.e}</span>
+              <span style={{ color: "var(--dim)" }}>{row.w}</span>
+              <span style={{ color: "var(--faint)" }}>{row.i}</span>
+              <span style={{ color: "var(--text)" }}>{row.risk}</span>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
-}
-
-interface Bucket {
-  day: string;
-  total: number;
-  bySeverity: Record<string, number>;
-}
-
-function groupByDay(entries: RiskEntry[]): Bucket[] {
-  const map = new Map<string, Bucket>();
-  for (const entry of entries) {
-    const day = entry.recorded_at.slice(0, 10);
-    const bucket = map.get(day) ?? { day, total: 0, bySeverity: {} };
-    bucket.total += entry.count;
-    bucket.bySeverity[entry.severity] =
-      (bucket.bySeverity[entry.severity] ?? 0) + entry.count;
-    map.set(day, bucket);
-  }
-  return [...map.values()].sort((a, b) => a.day.localeCompare(b.day));
 }

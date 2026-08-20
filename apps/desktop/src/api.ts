@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 import type {
   AdapterStatus,
   DrossConfig,
@@ -44,4 +45,21 @@ export const api = {
     invoke<void>("override_authorship", {
       args: { path, startLine, endLine, isAi },
     }),
+
+  /**
+   * Native folder picker. Falls back to null when the dialog is unavailable,
+   * which is the case when the UI runs in a plain browser.
+   */
+  pickDirectory: async (): Promise<string | null> => {
+    const picked = await open({ directory: true }).catch(() => null);
+    return typeof picked === "string" ? picked : null;
+  },
+
+  /**
+   * Opens a `file:line` reference in the user's editor. Not yet wired to a
+   * backend command, so it resolves quietly rather than throwing into the UI.
+   */
+  openInEditor: async (_location: string): Promise<void> => {
+    return;
+  },
 };

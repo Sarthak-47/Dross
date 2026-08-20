@@ -1,155 +1,271 @@
-import { CHECK_LABELS, type CheckId, type DrossConfig, type Severity } from "../types";
-
-const CHECK_IDS = Object.keys(CHECK_LABELS) as CheckId[];
-
-const SEVERITIES: Severity[] = ["info", "warning", "error"];
+import { Segmented, Switch } from "./controls";
+import type { CheckRow, Severity, SignalRow } from "../types";
 
 interface Props {
-  config: DrossConfig | null;
-  disabled: boolean;
-  onChange: (config: DrossConfig) => void;
+  signals: SignalRow[];
+  checks: CheckRow[];
+  expanded: string | null;
+  cloneThreshold: number;
+  zThreshold: number;
+  minSeverity: Severity;
+  commitGate: "advisory" | "block";
+  baselineSamples: number;
+  labelledDiffs: number;
+  rounds: number;
+  onToggleSignal: (name: string, on: boolean) => void;
+  onToggleCheck: (name: string, on: boolean) => void;
+  onExpand: (name: string | null) => void;
+  onCloneThreshold: (value: number) => void;
+  onZThreshold: (value: number) => void;
+  onMinSeverity: (value: Severity) => void;
+  onCommitGate: (value: "advisory" | "block") => void;
 }
 
-export function Settings({ config, disabled, onChange }: Props) {
-  if (!config) {
-    return (
-      <div className="empty">
-        <p className="dim">Open a repository to edit its settings.</p>
-      </div>
-    );
-  }
+/** ≥80 ok · 50–79 warn · <50 ember. */
+function band(precision: number) {
+  if (precision >= 80) return "prec prec--ok";
+  if (precision >= 50) return "prec prec--mid";
+  return "prec prec--low";
+}
 
-  const disabledChecks = new Set(config.disabled_checks);
-
-  const toggleCheck = (id: CheckId) => {
-    const next = new Set(disabledChecks);
-    if (next.has(id)) {
-      next.delete(id);
-    } else {
-      next.add(id);
-    }
-    onChange({ ...config, disabled_checks: [...next] });
-  };
-
+export function Settings({
+  signals,
+  checks,
+  expanded,
+  cloneThreshold,
+  zThreshold,
+  minSeverity,
+  commitGate,
+  baselineSamples,
+  labelledDiffs,
+  rounds,
+  onToggleSignal,
+  onToggleCheck,
+  onExpand,
+  onCloneThreshold,
+  onZThreshold,
+  onMinSeverity,
+  onCommitGate,
+}: Props) {
   return (
-    <div className="settings">
-      <section className="settings-group">
-        <h3>Checks</h3>
-        <p className="dim">
-          Disabled checks are reported as skipped rather than silently omitted,
-          so a run always accounts for every check.
-        </p>
-        {CHECK_IDS.map((id) => (
-          <label key={id} className="row">
-            <input
-              type="checkbox"
-              checked={!disabledChecks.has(id)}
-              disabled={disabled}
-              onChange={() => toggleCheck(id)}
-            />
-            <span>{CHECK_LABELS[id]}</span>
-          </label>
-        ))}
-      </section>
+    <div className="view">
+      <div className="settings">
+        <div className="settings__main">
+          <section>
+            <div className="section__head">
+              <h2 className="h">Signals</h2>
+              <span className="mono-note">
+                precision measured on {rounds} benchmark rounds · {labelledDiffs}{" "}
+                labelled findings
+              </span>
+            </div>
+            <p className="sub" style={{ maxWidth: 780, marginTop: 6 }}>
+              Five signals ship disabled because they measured badly. The number
+              beside each one is what it actually scored here, not a claim. Turn
+              them on if you want them; they will be noisy.
+            </p>
 
-      <section className="settings-group">
-        <h3>Thresholds</h3>
+            <div className="signals">
+              <div className="signals__row signals__row--head">
+                <span>signal</span>
+                <span>precision</span>
+                <span>default</span>
+                <span style={{ justifySelf: "end" }}>on</span>
+              </div>
 
-        <label className="row row-stacked">
-          <span>Minimum severity shown</span>
-          <select
-            value={config.min_severity}
-            disabled={disabled}
-            onChange={(e) =>
-              onChange({ ...config, min_severity: e.target.value as Severity })
-            }
-          >
-            {SEVERITIES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
+              {signals.map((signal) => {
+                const open = expanded === signal.name;
+                return (
+                  <div key={signal.name}>
+                    <button
+                      type="button"
+                      className={
+                        open ? "signals__row signals__row--open" : "signals__row"
+                      }
+                      aria-expanded={open}
+                      onClick={() => onExpand(open ? null : signal.name)}
+                    >
+                      <span
+                        className={
+                          signal.on ? "signals__name" : "signals__name signals__name--off"
+                        }
+                      >
+                        <span
+                          style={{
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}
+                        >
+                          {signal.name}
+                        </span>
+                        {signal.heuristic && <span className="chip">heuristic</span>}
+                      </span>
+
+                      <span className={band(signal.precision)}>
+                        <span className="prec__num">{signal.precision}%</span>
+                        <span className="prec__track">
+                          <span
+                            className="prec__fill"
+                            style={{ width: `${signal.precision}%` }}
+                          />
+                        </span>
+                      </span>
+
+                      <span className="signals__default">
+                        {signal.def} by default
+                      </span>
+
+                      <Switch
+                        checked={signal.on}
+                        label={`${signal.name} enabled`}
+                        onChange={(next) => onToggleSignal(signal.name, next)}
+                      />
+                    </button>
+
+                    {open && (
+                      <div className="signals__detail">
+                        <p className="signals__reason">{signal.reason}</p>
+                        <div className="signals__rounds">
+                          {signal.rounds.map((round) => (
+                            <span key={round}>{round}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          <section>
+            <h2 className="h">Checks</h2>
+            <div className="checks">
+              {checks.map((check) => (
+                <div className="check" key={check.name}>
+                  <div className="check__body">
+                    <span className="check__name">{check.name}</span>
+                    <span className="check__note">{check.note}</span>
+                  </div>
+                  <Switch
+                    checked={check.on}
+                    label={`${check.name} enabled`}
+                    onChange={(next) => onToggleCheck(check.name, next)}
+                  />
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+
+        <aside className="settings__rail">
+          <div className="card">
+            <span className="micro" style={{ letterSpacing: "0.14em" }}>
+              thresholds
+            </span>
+
+            <div className="field">
+              <div className="field__top">
+                <span className="field__label">Clone similarity</span>
+                <span className="field__value">{cloneThreshold.toFixed(2)}</span>
+              </div>
+              <input
+                className="range"
+                type="range"
+                min={0.7}
+                max={1}
+                step={0.02}
+                value={cloneThreshold}
+                aria-label="Clone similarity threshold"
+                style={
+                  {
+                    "--fill": `${((cloneThreshold - 0.7) / 0.3) * 100}%`,
+                  } as React.CSSProperties
+                }
+                onChange={(event) => onCloneThreshold(Number(event.target.value))}
+              />
+              <span className="field__note">
+                Normalized-AST match ratio required before a pair is reported.
+              </span>
+            </div>
+
+            <div className="field">
+              <div className="field__top">
+                <span className="field__label">Complexity z-score</span>
+                <span className="field__value">z ≥ {zThreshold.toFixed(1)}</span>
+              </div>
+              <input
+                className="range"
+                type="range"
+                min={1}
+                max={4}
+                step={0.5}
+                value={zThreshold}
+                aria-label="Complexity z-score threshold"
+                style={
+                  { "--fill": `${((zThreshold - 1) / 3) * 100}%` } as React.CSSProperties
+                }
+                onChange={(event) => onZThreshold(Number(event.target.value))}
+              />
+              <span className="field__note">
+                Silent below 30 baseline samples. This repository has{" "}
+                {baselineSamples}.
+              </span>
+            </div>
+
+            <div className="field">
+              <span className="field__label">Minimum displayed severity</span>
+              <Segmented
+                full
+                label="Minimum displayed severity"
+                value={minSeverity}
+                onChange={onMinSeverity}
+                options={[
+                  { value: "info", label: "info" },
+                  { value: "warning", label: "warning" },
+                  { value: "error", label: "error" },
+                ]}
+              />
+            </div>
+          </div>
+
+          <div className="card">
+            <span className="micro" style={{ letterSpacing: "0.14em" }}>
+              commit gate
+            </span>
+
+            {(
+              [
+                {
+                  id: "advisory" as const,
+                  label: "Advisory (default)",
+                  note: "Prints findings and exits 0. Never blocks a commit.",
+                },
+                {
+                  id: "block" as const,
+                  label: "Block on error severity",
+                  note: "Exits non-zero on error findings only. --no-verify still bypasses it.",
+                },
+              ]
+            ).map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                role="radio"
+                className="radio"
+                aria-checked={commitGate === option.id}
+                onClick={() => onCommitGate(option.id)}
+              >
+                <span className="radio__dot" />
+                <span className="radio__body">
+                  <span className="radio__label">{option.label}</span>
+                  <span className="radio__note">{option.note}</span>
+                </span>
+              </button>
             ))}
-          </select>
-        </label>
-
-        <label className="row row-stacked">
-          <span>
-            Clone similarity threshold
-            <em className="dim"> — lower catches more, flags more</em>
-          </span>
-          <input
-            type="range"
-            min={0.5}
-            max={1}
-            step={0.01}
-            value={config.clone_threshold}
-            disabled={disabled}
-            onChange={(e) =>
-              onChange({
-                ...config,
-                clone_threshold: Number(e.target.value),
-              })
-            }
-          />
-          <span className="dim">{config.clone_threshold.toFixed(2)}</span>
-        </label>
-
-        <label className="row row-stacked">
-          <span>
-            Complexity outlier z-score
-            <em className="dim"> — needs 30+ history samples to fire at all</em>
-          </span>
-          <input
-            type="number"
-            min={1}
-            max={5}
-            step={0.1}
-            value={config.complexity_z_threshold}
-            disabled={disabled}
-            onChange={(e) =>
-              onChange({
-                ...config,
-                complexity_z_threshold: Number(e.target.value),
-              })
-            }
-          />
-        </label>
-      </section>
-
-      <section className="settings-group">
-        <h3>Commit gate</h3>
-        <p className="dim">
-          Controls the pre-commit hook only. The default is advisory: a hook
-          that blocks on a false positive gets uninstalled, so blocking is
-          opt-in.
-        </p>
-        <label className="row row-stacked">
-          <span>Block commits at</span>
-          <select
-            value={config.block_at ?? "none"}
-            disabled={disabled}
-            onChange={(e) =>
-              onChange({
-                ...config,
-                block_at:
-                  e.target.value === "none" ? null : (e.target.value as Severity),
-              })
-            }
-          >
-            <option value="none">never block (advisory only)</option>
-            {SEVERITIES.map((s) => (
-              <option key={s} value={s}>
-                {s} and above
-              </option>
-            ))}
-          </select>
-        </label>
-      </section>
-
-      <p className="dim settings-foot">
-        Saved to <code>.dross.json</code> in the repository, so the CLI and any
-        hook use the same settings.
-      </p>
+          </div>
+        </aside>
+      </div>
     </div>
   );
 }
