@@ -6,7 +6,7 @@ It catches what agent-generated diffs specifically get wrong — duplicated logi
 
 **Every check is a parser, a hash, or a graph algorithm. There are no model calls anywhere in the pipeline.** That is deliberate: it is what makes runs deterministic, reproducible, offline, and free.
 
-> Status: pre-release. The engine, CLI, adapters, desktop app, and benchmark harness are implemented and tested. Published precision figures across open-source repositories are not yet available — see [Benchmarks](#benchmarks) for exactly what has and has not been measured.
+> Status: pre-release. The engine, CLI, adapters, desktop app, and benchmark harness are implemented and tested, and precision has been measured across 22 open-source repositories — see [Benchmarks](#benchmarks) for the numbers and their limits.
 
 ---
 
@@ -120,31 +120,47 @@ npm run app:build --prefix apps/desktop
 
 ## Benchmarks
 
-Numbers are the reason to trust a tool that claims to catch things. Here is the current state, stated precisely.
+Numbers are the reason to trust a tool that claims to catch things, so these
+are measured rather than asserted, and published as they came out.
 
-**Measured — ground-truth corpus.** `fixtures/seeded` contains defective and correct code for every check, and the integration suite asserts that every positive is caught and no negative is flagged. All 11 cases pass. The negative cases carry most of the weight: any check reaches perfect recall by flagging everything, so each defect is paired with code that resembles it but is correct.
+**Precision, 22 open-source JS/TS and Python repositories, 204 labeled
+findings:** 50.5% overall (95% CI 44–57%), up from 32.4% before the benchmark
+exposed what was wrong. Per check: contract-change 70.2%, swallowed-exception
+37.5%, over-engineering 41.7%, structural-clone 8.3%.
 
-**Not yet measured — precision across open-source repositories.** The harness exists and runs, but the labeled sample has not been collected.
+Full method, both rounds, and every labeled verdict are in
+[docs/BENCHMARK_RESULTS.md](docs/BENCHMARK_RESULTS.md). The labeling was a
+single pass by the same family of system this tool is built to check — a real
+conflict of interest, and the reason these are an internal signal rather than a
+validated benchmark until a human labels an independent sample.
+
+Three signals measured 0% and ship disabled by default. They are still
+implemented and can be switched on per repository; a pre-commit check is
+uninstalled as a whole, so one noisy signal takes the accurate ones with it.
+
+**Recall** is measured against the seeded corpus in `fixtures/seeded`, not the
+open-source run: a label pass over emitted findings contains no false negatives
+by construction. Every seeded positive is caught and no seeded negative is
+flagged, verified in CI.
+
+Reproduce it:
 
 ```bash
-cargo run -p dross-bench -- run --repo-dir .bench/repos --agent-only
+cargo run -p dross-bench -- run --repo-dir .bench/repos
 ```
 
 ```bash
-cargo run -p dross-bench -- label --per-signal 30
+cargo run -p dross-bench -- label --per-signal 12
 ```
 
 ```bash
 cargo run -p dross-bench -- report --labels .bench/worksheet.jsonl
 ```
 
-Three design choices make the eventual numbers mean what they appear to:
-
-- The sample distinguishes agent-authored commits from human ones. Precision over arbitrary commits would not demonstrate what the tool claims to detect.
-- Sampling is stratified per signal, because rare signals are exactly the ones whose precision is least certain.
-- Results carry Wilson confidence intervals, and two independent label passes produce a Cohen's kappa. A bare percentage from a small sample invites over-reading.
-
-Recall is reported only against the seeded corpus and is otherwise explicitly marked unmeasured, since it cannot be derived from a label pass over emitted findings.
+Sampling is stratified per signal, because the rare signals are the ones whose
+precision is least certain. Results carry Wilson intervals, and two label
+passes produce a Cohen's kappa — a bare percentage from a small sample invites
+over-reading.
 
 ## Known limitations
 
