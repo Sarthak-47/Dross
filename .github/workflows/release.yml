@@ -95,19 +95,35 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci --prefix apps/desktop
 
+      # `tagName` is deliberately omitted so this step only builds. Letting
+      # tauri-action create the release made three parallel jobs race to create
+      # the same one, and it needs a write-scoped token to do it — a build
+      # should not fail because of either. Publishing happens once, below.
       - uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: apps/desktop
-          tagName: ${{ github.ref_name }}
-          releaseName: "Dross ${{ github.ref_name }}"
-          releaseDraft: true
-          prerelease: false
           args: ${{ matrix.args }}
 
+      - name: Collect installers
+        shell: bash
+        run: |
+          mkdir -p dist
+          # Searched from the workspace root rather than target/release: the
+          # macOS entry builds a universal binary, which bundles under its own
+          # target directory instead.
+          find target -type f -path '*/bundle/*' \
+            -regex '.*\.\(deb\|rpm\|AppImage\|dmg\|msi\|exe\)$' \
+            -exec cp -n {} dist/ ';'
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.os }}
+          path: dist/*
+          if-no-files-found: error
+
   release:
-    name: Publish CLI binaries
+    name: Publish release
     needs: [build-cli, build-desktop]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
@@ -117,8 +133,13 @@ jobs:
           path: dist
           merge-multiple: true
 
-      # Appends the CLI binaries to the draft release the desktop job created,
-      # so a tag produces one release containing both surfaces.
+      # The single publishing step: every binary and installer from the matrix
+      # above lands in one draft release.
+      #
+      # This needs a write-scoped GITHUB_TOKEN. The workflow asks for it above,
+      # but that request is capped by Settings -> Actions -> General -> Workflow
+      # permissions, which must be "Read and write". While it is read-only this
+      # step fails and the artifacts are still downloadable from the run.
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
