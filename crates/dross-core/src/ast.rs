@@ -267,14 +267,53 @@ fn classify_function(language: Language, kind: &str) -> FunctionKind {
 
 /// Strips syntactic noise so `: string` and `:string` compare equal.
 pub fn normalize_type(raw: &str) -> String {
-    raw.trim()
+    let collapsed = raw
+        .trim()
         .trim_start_matches("->")
         .trim_start_matches(':')
         .split_whitespace()
         .collect::<Vec<_>>()
-        .join(" ")
-        .trim()
-        .to_string()
+        .join(" ");
+    let collapsed = collapsed.trim();
+
+    // Union members are a set, not a sequence. pytest reordering
+    // `ModuleType | str | Sequence[str] | None` to
+    // `None | ModuleType | str | Sequence[str]` changed nothing a caller can
+    // observe, but positional comparison reported it as a type change. Sorting
+    // the members makes the two forms compare equal.
+    //
+    // Splitting is depth-aware so a `|` inside `dict[str, A | B]` does not
+    // split the outer type.
+    if let Some(members) = split_union(collapsed) {
+        let mut parts: Vec<&str> = members.iter().map(|m| m.trim()).collect();
+        parts.sort_unstable();
+        parts.dedup();
+        return parts.join(" | ");
+    }
+    collapsed.to_string()
+}
+
+/// Splits a top-level union, or returns `None` when the type is not one.
+fn split_union(text: &str) -> Option<Vec<&str>> {
+    let mut depth = 0i32;
+    let mut parts = Vec::new();
+    let mut start = 0usize;
+    for (i, ch) in text.char_indices() {
+        match ch {
+            '[' | '(' | '<' | '{' => depth += 1,
+            ']' | ')' | '>' | '}' => depth -= 1,
+            '|' if depth == 0 => {
+                parts.push(&text[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    parts.push(&text[start..]);
+    Some(parts)
 }
 
 /// Depth-first walk yielding every node, used by the pattern-matching checks.
@@ -292,6 +331,32 @@ pub fn walk<'a>(root: Node<'a>, mut visit: impl FnMut(Node<'a>)) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Regression: reordering the members of a union is not a contract change.
+    /// pytest did exactly that across several signatures and each one was
+    /// reported as a type change.
+    #[test]
+    fn union_members_compare_as_a_set() {
+        assert_eq!(
+            normalize_type("ModuleType | str | Sequence[str] | None"),
+            normalize_type("None | ModuleType | str | Sequence[str]")
+        );
+        assert_eq!(
+            normalize_type("str | NotSetType | None"),
+            normalize_type("str | None | NotSetType")
+        );
+        // A genuinely different union must still differ.
+        assert_ne!(normalize_type("str | None"), normalize_type("int | None"));
+        // A `|` nested inside a generic must not split the outer type.
+        assert_eq!(
+            normalize_type("dict[str, A | B]"),
+            normalize_type("dict[str, A | B]")
+        );
+        assert_ne!(
+            normalize_type("dict[str, A | B]"),
+            normalize_type("dict[str, A]")
+        );
+    }
 
     #[test]
     fn extracts_typescript_function_signature() {
