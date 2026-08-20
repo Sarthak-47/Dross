@@ -34,7 +34,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Analyze the current diff.
+    /// Analyze the current diff. Defaults to staged changes; pass --worktree
+    /// to analyze uncommitted edits instead.
     Check(CheckArgs),
     /// Build or rebuild the whole-repo fingerprint index.
     Index(IndexArgs),
@@ -178,10 +179,12 @@ fn cmd_check(args: &CheckArgs, repo_root: &Path) -> Result<i32> {
         engine = engine.with_index(index);
     }
 
-    let target = if args.worktree {
-        DiffTarget::WorktreeVsHead
-    } else {
-        DiffTarget::StagedVsHead
+    // Staged is the default because the pre-commit hook is the primary
+    // caller. `--staged` is therefore redundant, but accepted so the intent
+    // can be written out explicitly in a hook or CI script.
+    let target = match (args.staged, args.worktree) {
+        (_, true) => DiffTarget::WorktreeVsHead,
+        _ => DiffTarget::StagedVsHead,
     };
 
     // Authorship comes from the file watcher in the app; the CLI has only the

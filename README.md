@@ -109,7 +109,13 @@ npm install --prefix apps/desktop
 ```
 
 ```bash
-npm run tauri dev --prefix apps/desktop
+npm run app:dev --prefix apps/desktop
+```
+
+To produce an installer for the current platform:
+
+```bash
+npm run app:build --prefix apps/desktop
 ```
 
 ## Benchmarks
