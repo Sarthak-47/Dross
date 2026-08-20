@@ -602,19 +602,24 @@ fn complexity_outlier(ctx: &CheckContext<'_>) -> Vec<Finding> {
             continue;
         };
         total_lines += file.changed_line_count();
-        for func in parsed.functions() {
-            if !file.touches_range(func.start_line, func.end_line) {
-                continue;
-            }
-            let m = metrics::function_metrics(parsed, &func);
-            total_complexity += m.cyclomatic + m.node_count / 10;
-            if anchor.is_none() {
-                anchor = Some(SourceSpan {
-                    file: file.path.clone(),
-                    start_line: func.start_line,
-                    end_line: func.end_line,
-                });
-            }
+
+        // Complexity the change adds, not the complexity of everything it
+        // touched — otherwise a reformat accumulates the whole file.
+        let old_parsed = ctx.parsed_old(file);
+        total_complexity +=
+            metrics::added_complexity(parsed, old_parsed.as_ref(), |s, e| file.touches_range(s, e));
+
+        if anchor.is_none()
+            && let Some(func) = parsed
+                .functions()
+                .into_iter()
+                .find(|f| file.touches_range(f.start_line, f.end_line))
+        {
+            anchor = Some(SourceSpan {
+                file: file.path.clone(),
+                start_line: func.start_line,
+                end_line: func.end_line,
+            });
         }
     }
 

@@ -223,13 +223,16 @@ impl Engine {
                     continue;
                 };
                 lines += diff.changed_line_count();
-                for func in parsed.functions() {
-                    if !diff.touches_range(func.start_line, func.end_line) {
-                        continue;
-                    }
-                    let m = crate::metrics::function_metrics(&parsed, &func);
-                    complexity += m.cyclomatic + m.node_count / 10;
-                }
+                // Must match how the check measures, or the distribution and
+                // the sample scored against it are not comparable.
+                let old_parsed = diff
+                    .old_source
+                    .as_ref()
+                    .and_then(|src| crate::ast::ParsedFile::parse(language, src.clone()).ok());
+                complexity +=
+                    crate::metrics::added_complexity(&parsed, old_parsed.as_ref(), |s, en| {
+                        diff.touches_range(s, en)
+                    });
             }
             if lines == 0 || complexity == 0 {
                 continue;
