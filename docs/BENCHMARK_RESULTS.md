@@ -97,6 +97,18 @@ claimed. These numbers describe what a user sees running Dross on a normal
 repository, which matters, but they are not a measurement of the population
 the tool was designed for.
 
+## Dogfooding
+
+Dross is run against its own history. Replaying the twelve commits that built
+the desktop UI — several thousand lines of new TypeScript and Rust — produced
+no findings outside the seeded corpus.
+
+That result is only meaningful because the path was checked rather than
+assumed: a `.tsx` file containing a deliberate empty catch was staged, and the
+check reported it. The tool does see the file type the UI is written in. Rust
+sources are invisible to it, since the launch grammars are JavaScript,
+TypeScript and Python.
+
 ## How the labeling was done, and where it is weak
 
 A single labeler — Claude Opus 5 — reading the source at each finding's
