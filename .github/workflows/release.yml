@@ -111,9 +111,15 @@ jobs:
           # Searched from the workspace root rather than target/release: the
           # macOS entry builds a universal binary, which bundles under its own
           # target directory instead.
-          find target -type f -path '*/bundle/*' \
-            -regex '.*\.\(deb\|rpm\|AppImage\|dmg\|msi\|exe\)$' \
-            -exec cp -n {} dist/ ';'
+          #
+          # One -name per extension rather than a single -regex: macOS ships BSD
+          # find, whose -regex takes a POSIX basic RE with no alternation, so a
+          # GNU-style `\|` pattern matched nothing there and the job uploaded an
+          # empty directory. -path and -name are portable across both.
+          for ext in deb rpm AppImage dmg msi exe; do
+            find target -type f -path '*/bundle/*' -name "*.$ext" \
+              -exec cp -n {} dist/ ';'
+          done
           ls -l dist
 
       - uses: actions/upload-artifact@v4
