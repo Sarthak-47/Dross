@@ -6,11 +6,16 @@
 
 use std::path::PathBuf;
 
-/// `file_source` must refuse to read outside the open repository. The renderer
-/// is granted no filesystem permission precisely so this command is the only
-/// door, which makes this the whole boundary.
+/// Path confinement is the whole renderer boundary: the UI is granted no
+/// filesystem permission of its own, so `resolve_in_repo` is the only door.
+///
+/// This calls the real function. An earlier version of this test re-implemented
+/// the canonicalize-and-compare locally, which meant it would have kept passing
+/// if the door itself were removed.
 #[test]
-fn file_source_confinement_rejects_paths_outside_the_repository() {
+fn path_confinement_rejects_paths_outside_the_repository() {
+    use dross_desktop_lib::commands::resolve_in_repo;
+
     let root = std::env::temp_dir().join(format!("dross-ipc-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join("src")).unwrap();
@@ -19,17 +24,21 @@ fn file_source_confinement_rejects_paths_outside_the_repository() {
     let outside = std::env::temp_dir().join(format!("dross-outside-{}.js", std::process::id()));
     std::fs::write(&outside, "secret\n").unwrap();
 
-    let canonical_root = root.canonicalize().unwrap();
-    let inside = root.join("src/a.js").canonicalize().unwrap();
-    assert!(inside.starts_with(&canonical_root));
+    let resolved = resolve_in_repo(&root, "src/a.js").expect("a path inside the repo resolves");
+    assert!(resolved.starts_with(root.canonicalize().unwrap()));
 
-    let escaped = root.join("..").join(outside.file_name().unwrap());
-    if let Ok(resolved) = escaped.canonicalize() {
-        assert!(
-            !resolved.starts_with(&canonical_root),
-            "a traversal path resolved inside the repository"
-        );
-    }
+    // Traversal out of the repository, spelled the way a renderer would have
+    // to spell it.
+    let escape = format!("../{}", outside.file_name().unwrap().to_string_lossy());
+    let err = resolve_in_repo(&root, &escape).expect_err("a traversal path must be refused");
+    assert!(err.contains("outside the open repository"), "{err}");
+
+    // An absolute path handed straight in must not bypass the join either.
+    let absolute = outside.display().to_string();
+    assert!(
+        resolve_in_repo(&root, &absolute).is_err(),
+        "an absolute path outside the repository must be refused"
+    );
 
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::remove_file(&outside);
@@ -70,28 +79,60 @@ fn every_listed_adapter_is_addressable_by_its_own_id() {
 
 /// The repository header reads these fields, so they have to survive serde's
 /// camelCase rename.
+///
+/// Serialises the real `RepositoryInfo`. An earlier version declared a local
+/// struct with the same shape, which tested that serde renames fields — never
+/// in doubt — rather than that this type still has the fields types.ts declares.
 #[test]
 fn repository_info_serialises_as_the_ui_expects() {
-    #[derive(serde::Serialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Probe {
-        root: PathBuf,
-        index_built: bool,
-        indexed_functions: usize,
-        watcher_active: bool,
-    }
+    use dross_desktop_lib::commands::RepositoryInfo;
 
-    let json = serde_json::to_value(Probe {
+    let json = serde_json::to_value(RepositoryInfo {
         root: PathBuf::from("/tmp/x"),
+        name: "x".into(),
+        branch: Some("main".into()),
         index_built: true,
         indexed_functions: 3,
+        baseline_samples: 412,
         watcher_active: false,
     })
     .unwrap();
 
-    for key in ["indexBuilt", "indexedFunctions", "watcherActive"] {
-        assert!(json.get(key).is_some(), "the UI reads `{key}`");
-    }
+    // Exactly the key set of the RepositoryInfo interface in types.ts. Asserted
+    // as a whole set: an added backend field the UI never learns about is as
+    // much a drift as a renamed one.
+    let mut keys: Vec<&str> = json
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        [
+            "baselineSamples",
+            "branch",
+            "indexBuilt",
+            "indexedFunctions",
+            "name",
+            "root",
+            "watcherActive",
+        ]
+    );
+
+    // A detached HEAD has to reach the UI as null, not as a missing key.
+    let detached = serde_json::to_value(RepositoryInfo {
+        root: PathBuf::from("/tmp/x"),
+        name: "x".into(),
+        branch: None,
+        index_built: false,
+        indexed_functions: 0,
+        baseline_samples: 0,
+        watcher_active: false,
+    })
+    .unwrap();
+    assert!(detached["branch"].is_null());
 }
 
 /// A finding must serialise with the field names types.ts declares, or the
@@ -168,38 +209,39 @@ fn settings_round_trip_through_the_config_file() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// A `file:line` reference must split into a path and a line, and a path that
-/// escapes the repository must be refused.
+/// The findings panel hands `open_in_editor` a `file:line` string built from a
+/// finding's span, so the split has to survive the shapes those spans take.
+///
+/// Calls the real `split_location`; the previous version tested a closure
+/// copied from it, which could not have detected the two diverging.
 #[test]
-fn editor_locations_split_and_stay_inside_the_repository() {
-    let split = |location: &str| -> (String, Option<String>) {
-        match location.rsplit_once(':') {
-            Some((path, num)) if !num.is_empty() && num.chars().all(|c| c.is_ascii_digit()) => {
-                (path.to_string(), Some(num.to_string()))
-            }
-            _ => (location.to_string(), None),
-        }
-    };
+fn editor_locations_split_into_a_path_and_a_line() {
+    use dross_desktop_lib::commands::split_location;
 
     assert_eq!(
-        split("src/a.ts:42"),
-        ("src/a.ts".to_string(), Some("42".to_string()))
-    );
-    // A Windows drive letter is not a line number.
-    assert_eq!(split("src/a.ts"), ("src/a.ts".to_string(), None));
-
-    let root = std::env::temp_dir().join(format!("dross-edit-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(root.join("src")).unwrap();
-    std::fs::write(root.join("src/a.ts"), "x\n").unwrap();
-    let canonical_root = root.canonicalize().unwrap();
-
-    assert!(
-        root.join("src/a.ts")
-            .canonicalize()
-            .unwrap()
-            .starts_with(&canonical_root)
+        split_location("src/a.ts:42"),
+        ("src/a.ts", Some("42".into()))
     );
 
-    let _ = std::fs::remove_dir_all(&root);
+    // No line number: the whole string is the path.
+    assert_eq!(split_location("src/a.ts"), ("src/a.ts", None));
+
+    // A Windows absolute path ends in no digits, so the drive colon is not
+    // mistaken for a line separator.
+    assert_eq!(
+        split_location(r"C:\repo\src\a.ts"),
+        (r"C:\repo\src\a.ts", None)
+    );
+
+    // ...but one that *does* carry a line still splits on the last colon.
+    assert_eq!(
+        split_location(r"C:\repo\src\a.ts:7"),
+        (r"C:\repo\src\a.ts", Some("7".into()))
+    );
+
+    // A trailing colon is not a line number.
+    assert_eq!(split_location("src/a.ts:"), ("src/a.ts:", None));
+
+    // Nor is a non-numeric suffix.
+    assert_eq!(split_location("src/a.ts:beta"), ("src/a.ts:beta", None));
 }

@@ -15,6 +15,40 @@ use crate::state::AppState;
 
 type CmdResult<T> = Result<T, String>;
 
+/// Splits `src/a.ts:42` into a path and a line number.
+///
+/// A trailing segment only counts as a line when it is entirely digits, so a
+/// path that merely contains a colon is left intact.
+pub fn split_location(location: &str) -> (&str, Option<String>) {
+    match location.rsplit_once(':') {
+        Some((path, num)) if !num.is_empty() && num.chars().all(|c| c.is_ascii_digit()) => {
+            (path, Some(num.to_string()))
+        }
+        _ => (location, None),
+    }
+}
+
+/// Resolves a renderer-supplied relative path against the open repository,
+/// refusing anything that escapes it.
+///
+/// The renderer holds no filesystem permission of its own, so every path it
+/// sends passes through here. Both commands that accept one share this rather
+/// than repeating the check, because a confinement check that exists in two
+/// places is one that can be fixed in one of them.
+pub fn resolve_in_repo(root: &std::path::Path, rel: &str) -> CmdResult<PathBuf> {
+    let canonical_root = root.canonicalize().map_err(|e| e.to_string())?;
+    let target = root
+        .join(rel)
+        .canonicalize()
+        .map_err(|e| format!("cannot open {rel}: {e}"))?;
+    if !target.starts_with(&canonical_root) {
+        return Err(format!(
+            "refusing to open {rel}: outside the open repository"
+        ));
+    }
+    Ok(target)
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RepositoryInfo {
@@ -239,25 +273,8 @@ pub fn override_authorship(args: AuthorshipOverride, state: State<'_, AppState>)
 pub fn open_in_editor(location: String, state: State<'_, AppState>) -> CmdResult<()> {
     let root = state.require_repo()?;
 
-    // `src/a.ts:42` — split off a trailing line number if present.
-    let (rel, line) = match location.rsplit_once(':') {
-        Some((path, num)) if num.chars().all(|c| c.is_ascii_digit()) && !num.is_empty() => {
-            (path, Some(num.to_string()))
-        }
-        _ => (location.as_str(), None),
-    };
-
-    let canonical_root = root.canonicalize().map_err(|e| e.to_string())?;
-    let target = root
-        .join(rel)
-        .canonicalize()
-        .map_err(|e| format!("cannot open {rel}: {e}"))?;
-    if !target.starts_with(&canonical_root) {
-        return Err(format!(
-            "refusing to open {rel}: outside the open repository"
-        ));
-    }
-
+    let (rel, line) = split_location(&location);
+    let target = resolve_in_repo(&root, rel)?;
     let path = target.display().to_string();
     let line = line.unwrap_or_else(|| "1".to_string());
 
@@ -306,15 +323,6 @@ pub fn open_in_editor(location: String, state: State<'_, AppState>) -> CmdResult
 #[tauri::command]
 pub fn file_source(path: String, state: State<'_, AppState>) -> CmdResult<String> {
     let root = state.require_repo()?;
-    let candidate = root.join(&path);
-    let canonical = candidate
-        .canonicalize()
-        .map_err(|e| format!("cannot read {path}: {e}"))?;
-    let canonical_root = root.canonicalize().map_err(|e| e.to_string())?;
-    if !canonical.starts_with(&canonical_root) {
-        return Err(format!(
-            "refusing to read {path}: outside the open repository"
-        ));
-    }
+    let canonical = resolve_in_repo(&root, &path)?;
     std::fs::read_to_string(&canonical).map_err(|e| e.to_string())
 }

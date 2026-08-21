@@ -1,9 +1,11 @@
 //! Tauri backend — thin IPC layer over dross-core. All analysis logic lives
 //! in the core crate so the app and the CLI cannot drift apart.
 
-mod commands;
-mod state;
-mod watcher;
+// Public so the integration tests exercise the real commands rather than a
+// copy of their logic.
+pub mod commands;
+pub mod state;
+pub mod watcher;
 
 use state::AppState;
 
