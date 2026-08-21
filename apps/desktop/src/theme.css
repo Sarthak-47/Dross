@@ -25,8 +25,17 @@
   --line-soft: #1f2429;
   --text: #e7e9ea;
   --dim: #98a0a8;
-  --faint: #6a7279;
+  /* Lightened from #6a7279, which measured 3.38:1 against --panel2 — the dark
+   * theme had the same contrast failure as the light one, and being the
+   * default is the reason it went unmeasured for longer. Still well clear of
+   * --dim, so the three-step ink hierarchy survives. */
+  --faint: #828a91;
   --ember: #e0692a;
+  /* Foreground for anything painted on --ember. White measured 3.37:1 on the
+   * dark theme's ember and failed AA on the primary call to action; ink gives
+   * 5.07:1. The light theme's ember is dark enough that white is correct there,
+   * so this is a token rather than a fixed colour. */
+  --on-ember: #191c20;
   --ember-hi: #f5893f;
   --ember-dim: #7d3a19;
   --ember-wash: #2a1a12;
@@ -35,6 +44,45 @@
   --info: #5c8ba3;
   --info-wash: #14202a;
   --ok: #6c9a6b;
+}
+
+/* The light palette is reached two ways: by the operating system's own
+ * preference, and by an explicit `data-theme` on the root.
+ *
+ * Only the second existed for a while, and nothing in the app ever sets it, so
+ * the light theme was unreachable — a user on a light desktop got the dark one
+ * regardless. The media query is what actually connects it; the attribute
+ * selector below lets an explicit choice win in both directions.
+ *
+ * The two declaration lists are necessarily identical, and plain CSS gives no
+ * way to share them. theme.test.ts asserts they stay in step. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --desk: #ddd9d2;
+    --bg: #f4f2ee;
+    --panel: #ffffff;
+    --panel2: #efece7;
+    --raise: #e6e2db;
+    --line: #d6d1c8;
+    --line-soft: #e4e0d8;
+    --text: #191c20;
+    --dim: #5b6268;
+    /* Darkened from #878d93, which measured 2.85:1 against --panel2 and 3.35:1
+     * against --panel, below the 4.5:1 these sizes need. This token carries the
+     * metric labels, column headers and status bar, so it was the single cause
+     * of every light-mode contrast failure. */
+    --faint: #666c72;
+    --ember: #b34e18;
+    --on-ember: #ffffff;
+    --ember-hi: #8f3d11;
+    --ember-dim: #d9a684;
+    --ember-wash: #f6e9df;
+    --warn: #8a6512;
+    --warn-wash: #f5eddb;
+    --info: #38657d;
+    --info-wash: #e6eef3;
+    --ok: #4c7a4b;
+  }
 }
 
 :root[data-theme="light"] {
@@ -47,8 +95,13 @@
   --line-soft: #e4e0d8;
   --text: #191c20;
   --dim: #5b6268;
-  --faint: #878d93;
+  /* Darkened from #878d93, which measured 2.85:1 against --panel2 and 3.35:1
+   * against --panel, below the 4.5:1 these sizes need. This token carries the
+   * metric labels, column headers and status bar, so it was the single cause
+   * of every light-mode contrast failure. */
+  --faint: #666c72;
   --ember: #b34e18;
+  --on-ember: #ffffff;
   --ember-hi: #8f3d11;
   --ember-dim: #d9a684;
   --ember-wash: #f6e9df;
