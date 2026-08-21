@@ -12,6 +12,8 @@ interface Props {
   baselineSamples: number;
   labelledDiffs: number;
   rounds: number;
+  /** No repository open, so there is no .dross.json to write to. */
+  disabled: boolean;
   onToggleSignal: (name: string, on: boolean) => void;
   onToggleCheck: (name: string, on: boolean) => void;
   onExpand: (name: string | null) => void;
@@ -39,6 +41,7 @@ export function Settings({
   baselineSamples,
   labelledDiffs,
   rounds,
+  disabled,
   onToggleSignal,
   onToggleCheck,
   onExpand,
@@ -49,6 +52,15 @@ export function Settings({
 }: Props) {
   return (
     <div className="view">
+      {/* Every control writes straight to the repository's .dross.json, so
+          without a repository there is nowhere to write. The controls used to
+          stay live here and silently discard the change. */}
+      {disabled && (
+        <p className="sub" style={{ marginBottom: 18 }}>
+          Settings are stored per repository, in its <code>.dross.json</code>.
+          Open a repository to change them.
+        </p>
+      )}
       <div className="settings">
         <div className="settings__main">
           <section>
@@ -127,6 +139,7 @@ export function Settings({
                       <Switch
                         checked={signal.on}
                         label={`${signal.name} enabled`}
+                        disabled={disabled}
                         onChange={(next) => onToggleSignal(signal.name, next)}
                       />
                     </div>
@@ -159,6 +172,7 @@ export function Settings({
                   <Switch
                     checked={check.on}
                     label={`${check.name} enabled`}
+                    disabled={disabled}
                     onChange={(next) => onToggleCheck(check.name, next)}
                   />
                 </div>
@@ -191,6 +205,7 @@ export function Settings({
                     "--fill": `${((cloneThreshold - 0.7) / 0.3) * 100}%`,
                   } as React.CSSProperties
                 }
+                disabled={disabled}
                 onChange={(event) => onCloneThreshold(Number(event.target.value))}
               />
               <span className="field__note">
@@ -214,6 +229,7 @@ export function Settings({
                 style={
                   { "--fill": `${((zThreshold - 1) / 3) * 100}%` } as React.CSSProperties
                 }
+                disabled={disabled}
                 onChange={(event) => onZThreshold(Number(event.target.value))}
               />
               <span className="field__note">
@@ -228,7 +244,8 @@ export function Settings({
                 full
                 label="Minimum displayed severity"
                 value={minSeverity}
-                onChange={onMinSeverity}
+                disabled={disabled}
+              onChange={onMinSeverity}
                 options={[
                   { value: "info", label: "info" },
                   { value: "warning", label: "warning" },
@@ -263,7 +280,8 @@ export function Settings({
                 role="radio"
                 className="radio"
                 aria-checked={commitGate === option.id}
-                onClick={() => onCommitGate(option.id)}
+                disabled={disabled}
+                  onClick={() => onCommitGate(option.id)}
               >
                 <span className="radio__dot" />
                 <span className="radio__body">

@@ -9,13 +9,8 @@ import { Header } from "./components/Header";
 import { RiskHistory } from "./components/RiskHistory";
 import { Settings } from "./components/Settings";
 import { SourcePane } from "./components/SourcePane";
-import {
-  CHECKS,
-  HISTORY_BARS,
-  HISTORY_ROWS,
-  SEED_CONNECTIONS,
-  SIGNALS,
-} from "./fixtures";
+import { CHECKS, SIGNALS } from "./fixtures";
+import { toConnectionCards, toHistoryBars, toHistoryRows } from "./derive";
 import { applyConfig, groupHistory, toConfig } from "./settingsSync";
 import { deriveView } from "./viewState";
 import type {
@@ -40,6 +35,16 @@ import type {
 import "./theme.css";
 import "./App.css";
 
+/* The provenance of the precision figures in the Settings table. Named rather
+ * than inlined because the copy beside them says the number is measured, so a
+ * stale count there is a false claim about the measurement itself.
+ *
+ * docs/BENCHMARK_RESULTS.md reports four rounds; docs/benchmark-labels-final.jsonl
+ * holds one line per labelled finding. The header said three rounds until this
+ * was checked against the documents. */
+const BENCHMARK_ROUNDS = 4;
+const BENCHMARK_LABELLED = 157;
+
 export default function App() {
   const [repo, setRepo] = useState<RepositoryInfo | null>(null);
   const [report, setReport] = useState<Report | null>(null);
@@ -54,8 +59,8 @@ export default function App() {
   // Persisted settings. Every control applies immediately; there is no Save.
   const [signals, setSignals] = useState<SignalRow[]>(SIGNALS);
   const [checks, setChecks] = useState<CheckRow[]>(CHECKS);
-  const [expanded, setExpanded] = useState<string | null>("near-duplicate-function");
-  const [cloneThreshold, setCloneThreshold] = useState(0.92);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [cloneThreshold, setCloneThreshold] = useState(0.85);
   const [zThreshold, setZThreshold] = useState(2.5);
   const [minSeverity, setMinSeverity] = useState<Severity>("info");
   const [commitGate, setCommitGate] = useState<"advisory" | "block">("advisory");
@@ -225,51 +230,21 @@ export default function App() {
     [repo, busy, report],
   );
 
-  const connectionCards: ConnectionCard[] = useMemo(() => {
-    if (!adapters) return SEED_CONNECTIONS;
-    return adapters.map((a) => ({
-      name: a.label,
-      status: a.installed ? "connected" : a.detected ? "detected" : "not found",
-      path: a.config_path ?? "—",
-      signal: a.installed ? "wired in · runs dross --staged" : "not wired in",
-      limitation:
-        a.limitations[0] ??
-        "No limitation recorded for this integration on this platform.",
-    }));
-  }, [adapters]);
+  const connectionCards: ConnectionCard[] = useMemo(
+    () => toConnectionCards(adapters),
+    [adapters],
+  );
 
   const connected = connectionCards.filter((c) => c.status === "connected").length;
 
   /* The log stores one row per signal per run, so runs are recovered by
-   * grouping on the timestamp. Before any run exists the design's seed series
-   * stands in, so the view is never an empty frame. */
+   * grouping on the timestamp. An empty log stays empty: the History view says
+   * so rather than standing in a fabricated series. */
   const runs = useMemo(() => (history ? groupHistory(history) : []), [history]);
 
-  const historyBars: HistoryBar[] = useMemo(() => {
-    if (runs.length === 0) return HISTORY_BARS;
-    return runs.map((run) => [
-      run.error,
-      run.warning,
-      run.info,
-      run.recordedAt.slice(8, 10),
-    ]);
-  }, [runs]);
+  const historyBars: HistoryBar[] = useMemo(() => toHistoryBars(runs), [runs]);
 
-  const historyRows: HistoryRow[] = useMemo(() => {
-    if (runs.length === 0) return HISTORY_ROWS;
-    return [...runs]
-      .reverse()
-      .slice(0, 6)
-      .map((run) => ({
-        when: run.recordedAt.replace("T", " · ").slice(0, 16),
-        sha: "—",
-        subject: `${run.error + run.warning + run.info} findings recorded`,
-        e: run.error,
-        w: run.warning,
-        i: run.info,
-        risk: Math.min(run.error * 25 + run.warning * 8 + run.info * 2, 100),
-      }));
-  }, [runs]);
+  const historyRows: HistoryRow[] = useMemo(() => toHistoryRows(runs), [runs]);
 
   function body() {
     if (tab === "connections") {
@@ -314,8 +289,9 @@ export default function App() {
           minSeverity={minSeverity}
           commitGate={commitGate}
           baselineSamples={repo?.baselineSamples ?? 0}
-          labelledDiffs={157}
-          rounds={3}
+          labelledDiffs={BENCHMARK_LABELLED}
+          rounds={BENCHMARK_ROUNDS}
+          disabled={!config}
           onExpand={setExpanded}
           onToggleSignal={(name, on) => {
             const next = signals.map((s) => (s.name === name ? { ...s, on } : s));
@@ -502,7 +478,7 @@ export default function App() {
           // seed fixtures for a repository nobody has analysed yet.
           findings: report ? report.findings.length : 0,
           connections: `${connected}/${connectionCards.length}`,
-          history: HISTORY_ROWS.length,
+          history: runs.length,
         }}
         onTargetChange={(next) => {
           setTarget(next);

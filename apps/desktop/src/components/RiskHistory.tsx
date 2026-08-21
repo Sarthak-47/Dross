@@ -12,6 +12,24 @@ export function RiskHistory({
   rows: HistoryRow[];
   logPath: string;
 }) {
+  // Nothing recorded yet. Previously this fell back to a series from the design
+  // handoff, which presented six invented commits as the user's own history.
+  if (bars.length === 0) {
+    return (
+      <div className="view">
+        <div className="view__head">
+          <h2 className="h">No analyses recorded yet.</h2>
+          <p className="sub">
+            Every run appends its findings to the local log at{" "}
+            <code className="conn__path">{logPath}</code>. Run an analysis and
+            the trend starts here — nothing is shown until there is something
+            measured to show.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="view">
       <div className="history">
@@ -41,8 +59,8 @@ export function RiskHistory({
 
         {/* Flat bars, no rounding, no gridlines, no axis chrome. */}
         <div className="chart">
-          {bars.map(([error, warning, info, day]) => (
-            <div className="chart__col" key={day}>
+          {bars.map(({ id, error, warning, info, day }) => (
+            <div className="chart__col" key={id}>
               <div className="chart__stack">
                 <div style={{ height: info * UNIT, background: "var(--info)" }} />
                 <div style={{ height: warning * UNIT, background: "var(--warn)" }} />
@@ -64,7 +82,7 @@ export function RiskHistory({
             <span>risk</span>
           </div>
           {rows.map((row) => (
-            <div className="table__row" key={row.sha}>
+            <div className="table__row" key={row.id}>
               <span style={{ color: "var(--dim)" }}>{row.when}</span>
               <span style={{ color: "var(--ember)" }}>{row.sha}</span>
               <span className="table__subject">{row.subject}</span>

@@ -181,9 +181,19 @@ export interface ConnectionCard {
   limitation: string;
 }
 
-export type HistoryBar = [number, number, number, string];
+/** One recorded analysis. `id` is the run's timestamp, which is what makes it
+ * distinct — the commit sha is not recorded, so it cannot key a row. */
+export interface HistoryBar {
+  id: string;
+  error: number;
+  warning: number;
+  info: number;
+  /** Day of month, the only axis label the chart carries. */
+  day: string;
+}
 
 export interface HistoryRow {
+  id: string;
   when: string;
   sha: string;
   subject: string;

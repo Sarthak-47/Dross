@@ -31,14 +31,24 @@ export function Connections({
         </p>
       </div>
 
+      {/* No cards means detection has not run — which happens before a
+          repository is open. Saying so is the only honest option: this panel
+          used to fall back to a seeded list that reported integrations as
+          connected when nothing had been checked. */}
+      {cards.length === 0 && (
+        <p className="sub">
+          No integrations have been probed yet. Open a repository and Dross
+          checks this machine for each tool's configuration file.
+        </p>
+      )}
+
       <div className="conns">
         {cards.map((card) => {
           const connected = card.status === "connected";
-          const action = connected
-            ? "Disconnect"
-            : card.status === "detected"
-              ? "Connect"
-              : "Locate config…";
+          // "Locate config…" used to appear here for an undetected tool, but
+          // the button installs — there is no file picker behind it. Both
+          // non-connected states run the same install, so both say so.
+          const action = connected ? "Disconnect" : "Connect";
 
           return (
             <article className="conn" key={card.name}>

@@ -68,13 +68,23 @@ export function toConfig(
   };
 }
 
+/** One recorded analysis, recovered from the per-signal log rows. */
+export interface Run {
+  recordedAt: string;
+  error: number;
+  warning: number;
+  info: number;
+}
+
 /**
  * Groups risk-history entries into per-run bars and rows.
  *
  * The log stores one row per signal per run, so entries are bucketed by
  * timestamp to recover the runs the chart draws.
  */
-export function groupHistory(entries: { recorded_at: string; severity: string; count: number }[]) {
+export function groupHistory(
+  entries: { recorded_at: string; severity: string; count: number }[],
+): Run[] {
   const runs = new Map<string, { error: number; warning: number; info: number }>();
 
   for (const entry of entries) {
