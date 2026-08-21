@@ -28,8 +28,11 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 
-# Benchmark run artifacts (regenerable)
-.bench/
+# Benchmark run artifacts: the repository clones and the findings/label files
+# are large and regenerable. The harness scripts beside them are neither, and
+# the results in docs/ cannot be reproduced without them.
+.bench/*
+!.bench/*.py
 
 # npm wrapper downloads the native binary at install time
 npm/dross-cli-wrapper/bin/dross

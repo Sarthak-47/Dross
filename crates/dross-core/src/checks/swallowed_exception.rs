@@ -164,7 +164,17 @@ fn evaluate(file: &ParsedFile, handler: &CatchHandler<'_>, path: &std::path::Pat
             .as_deref()
             .is_some_and(|c| !is_broad_type(file.language, c));
 
-    if stats.has_logging && !stats.surfaces_error() && !narrow_with_explicit_return {
+    // A log line that states the failure is expected is the author writing
+    // the decision down: "ignore malformed buffer", "websocket closed before
+    // onclose event". That is the same reasoning the empty-catch signal
+    // applies to a comment, and these were the bulk of what remained.
+    let states_intent = stats.log_text.as_deref().is_some_and(declares_expected);
+
+    if stats.has_logging
+        && !stats.surfaces_error()
+        && !narrow_with_explicit_return
+        && !states_intent
+    {
         findings.push(Finding::new(
             CheckId::SwallowedException,
             "log-only-catch",
@@ -237,6 +247,8 @@ struct BodyStats {
     /// The handler carries a comment explaining the decision.
     is_documented: bool,
     has_logging: bool,
+    /// Text of the logging call, used to spot a message that documents intent.
+    log_text: Option<String>,
     has_throw: bool,
     has_error_return: bool,
     returns_literal: Option<String>,
@@ -287,6 +299,9 @@ fn body_stats(file: &ParsedFile, body: Option<Node<'_>>) -> BodyStats {
                 let text = file.text(node);
                 if looks_like_logging(text) {
                     stats.has_logging = true;
+                    if stats.log_text.is_none() {
+                        stats.log_text = Some(text.to_string());
+                    }
                 }
                 // `Promise.reject(...)` / `reject(...)` surfaces the error.
                 if text.starts_with("reject(") || text.contains("Promise.reject") {
@@ -329,6 +344,13 @@ fn surfaces_error_via_call(text: &str) -> bool {
     // `console.error` and `logger.error` end in "error" but only write to a
     // log. Logging is precisely what this check is about, so it never counts
     // as surfacing.
+    // `warnings.warn(...)` is a channel rather than a log line: it is routed
+    // through the warnings filter, which callers can escalate to an error, so
+    // the failure remains visible to them. Checked before the logging guard
+    // below, which would otherwise match it on `warn(`.
+    if text.trim_start().starts_with("warnings.warn") {
+        return true;
+    }
     if looks_like_logging(text) {
         return false;
     }
@@ -394,6 +416,29 @@ fn returned_value(file: &ParsedFile, node: Node<'_>) -> Option<String> {
 
 fn is_noop_statement(file: &ParsedFile, node: Node<'_>) -> bool {
     matches!(node.kind(), "pass_statement" | "empty_statement") || file.text(node).trim().is_empty()
+}
+
+/// True when a message says the failure was expected.
+///
+/// Deliberately a small, literal list. It is looking for an author stating
+/// intent, not inferring it.
+fn declares_expected(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    [
+        "ignore",
+        "ignoring",
+        "best effort",
+        "best-effort",
+        "expected",
+        "harmless",
+        "not fatal",
+        "non-fatal",
+        "optional",
+        "unsupported",
+        "no-op",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
 }
 
 fn looks_like_logging(text: &str) -> bool {
@@ -689,5 +734,63 @@ except:
             "try:\n    g()\nexcept ValueError as e:\n    raise RuntimeError(e)\n",
         );
         assert!(f.is_empty(), "unexpected findings: {:?}", signals(&f));
+    }
+
+    /// Regression: socket.io logged "ignore malformed buffer" and returned.
+    /// The message is the author recording the decision, exactly as a comment
+    /// records it for an empty handler.
+    #[test]
+    fn a_log_message_stating_intent_is_not_a_swallow() {
+        let f = run_on(
+            Language::JavaScript,
+            "try { g(); } catch (e) { debug('ignore malformed buffer'); }",
+        );
+        assert!(
+            !signals(&f).contains(&"log-only-catch"),
+            "{:?}",
+            signals(&f)
+        );
+    }
+
+    /// Regression: socket.io's "websocket closed before onclose event" is a
+    /// race the author knew about.
+    #[test]
+    fn a_log_message_calling_the_failure_expected_is_not_a_swallow() {
+        let f = run_on(
+            Language::JavaScript,
+            "try { g(); } catch (e) { debug('closed before onclose, expected'); }",
+        );
+        assert!(!signals(&f).contains(&"log-only-catch"));
+    }
+
+    /// The intent list must not swallow the signal itself: an ordinary error
+    /// log is still a log-only catch.
+    #[test]
+    fn an_ordinary_error_log_is_still_reported() {
+        let f = run_on(
+            Language::JavaScript,
+            "try { g(); } catch (e) { console.log('failed to load config'); }",
+        );
+        assert!(signals(&f).contains(&"log-only-catch"), "{:?}", signals(&f));
+    }
+
+    /// Regression: requests warned about a dependency version mismatch.
+    /// `warnings.warn` is a channel callers can escalate to an error, not a
+    /// log line that disappears.
+    #[test]
+    fn a_python_warning_surfaces_the_failure() {
+        let f = run_on(
+            Language::Python,
+            "try:
+    g()
+except Exception as e:
+    warnings.warn(str(e))
+",
+        );
+        assert!(
+            !signals(&f).contains(&"log-only-catch"),
+            "{:?}",
+            signals(&f)
+        );
     }
 }
