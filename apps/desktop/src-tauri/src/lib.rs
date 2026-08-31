@@ -29,7 +29,6 @@ pub fn run() {
             commands::current_repository,
             commands::analyze,
             commands::build_index,
-            commands::index_status,
             commands::list_connections,
             commands::install_connection,
             commands::uninstall_connection,

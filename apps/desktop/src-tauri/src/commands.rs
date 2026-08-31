@@ -178,11 +178,6 @@ pub fn build_index(window: tauri::Window, state: State<'_, AppState>) -> CmdResu
 }
 
 #[tauri::command]
-pub fn index_status(state: State<'_, AppState>) -> CmdResult<RepositoryInfo> {
-    current_repository(state)
-}
-
-#[tauri::command]
 pub fn list_connections(state: State<'_, AppState>) -> CmdResult<Vec<AdapterStatus>> {
     let root = state.require_repo()?;
     Ok(detect_all(&root))
