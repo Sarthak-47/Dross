@@ -9,6 +9,8 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
+// Read off disk rather than imported: Vite's ?raw hands back processed CSS, and
+// this needs the source, media query and all.
 const css = readFileSync(fileURLToPath(new URL("./theme.css", import.meta.url)), "utf-8");
 
 /** Pulls the `--name: value;` pairs out of one brace-delimited block. */
