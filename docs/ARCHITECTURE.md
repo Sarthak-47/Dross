@@ -180,6 +180,13 @@ Three layers, each answering a different question:
 
 CI additionally enforces determinism directly, since it is the central claim.
 
+Several tests here were checked by deliberately breaking the code they cover
+and confirming they fail. A test that cannot fail is worse than no test,
+because it reports coverage that does not exist — and three tests in this
+repository were found to be exactly that. The comment on such a test names the
+mutation it was validated against, so the claim can be re-checked rather than
+taken on trust.
+
 ## Where the index lives
 
 `.dross/` inside the analyzed repository, holding the fingerprint index,
@@ -190,6 +197,15 @@ The consequence is that it must be excluded from version control, so
 installation appends `.dross/` to the repository's `.gitignore`. This was found
 the direct way: an early test run committed `index.sqlite` into a fixture
 repository.
+
+What gets indexed is filtered by two ignore rules: the configured `ignore_dirs`,
+and the repository's own `.gitignore` as git itself applies it.
+A fixed directory list cannot stand in for the second — indexing this
+repository once walked twenty-one cloned benchmark repositories that git
+ignores and the list did not name. Skipping them is also correct rather than
+merely fast: an ignored file is never committed, so it cannot appear in a diff,
+and indexing it would let clone detection anchor a finding on a file that is
+not part of the project.
 
 The schema carries a version. Fingerprints from a different normalization are
 not comparable, so a version bump clears the index rather than silently
