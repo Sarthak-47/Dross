@@ -150,4 +150,74 @@ mod tests {
 
         std::fs::remove_dir_all(&repo).ok();
     }
+
+    /// The README promises every adapter "merges into existing configuration
+    /// rather than overwriting it, tags what it added, and removes only that on
+    /// uninstall". The test above started from an empty `{}`, so it could not
+    /// have caught this adapter clobbering a user's file.
+    #[test]
+    fn install_and_uninstall_preserve_a_user_s_own_hooks() {
+        let repo = std::env::temp_dir().join(format!("dross-ag-keep-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&repo);
+        std::fs::create_dir_all(repo.join(".antigravity")).unwrap();
+        let path = repo.join(".antigravity").join("hooks.json");
+        write_json(
+            &path,
+            &json!({
+                "telemetry": false,
+                "hooks": {
+                    "PostToolUse": [{ "matcher": "*", "command": "make fmt" }],
+                    "Stop": [{ "matcher": "*", "command": "notify-send done" }]
+                }
+            }),
+        )
+        .unwrap();
+
+        AntigravityAdapter.install(&repo).unwrap();
+        AntigravityAdapter.install(&repo).unwrap();
+
+        let doc = read_json(&path);
+        assert_eq!(doc["telemetry"], false, "clobbered an unrelated setting");
+        assert!(
+            doc["hooks"]["PostToolUse"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|e| e["command"] == "make fmt"),
+            "dropped the user's own hook"
+        );
+        assert!(
+            doc["hooks"]["Stop"].is_array(),
+            "dropped an untouched event"
+        );
+        assert_eq!(
+            serde_json::to_string(&doc)
+                .unwrap()
+                .matches(DROSS_MARKER)
+                .count(),
+            2,
+            "a second install duplicated the entries"
+        );
+
+        AntigravityAdapter.uninstall(&repo).unwrap();
+        let after = read_json(&path);
+        assert!(
+            !serde_json::to_string(&after)
+                .unwrap()
+                .contains(DROSS_MARKER),
+            "uninstall left a trace"
+        );
+        assert_eq!(after["telemetry"], false);
+        assert!(
+            after["hooks"]["PostToolUse"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|e| e["command"] == "make fmt"),
+            "uninstall removed a hook it did not add"
+        );
+        assert!(after["hooks"]["Stop"].is_array());
+
+        std::fs::remove_dir_all(&repo).ok();
+    }
 }

@@ -154,4 +154,65 @@ mod tests {
 
         std::fs::remove_dir_all(&repo).ok();
     }
+
+    /// Uninstall was not exercised at all, and install was only exercised
+    /// against an empty `{}` — neither could have caught this adapter
+    /// overwriting a user's configuration.
+    #[test]
+    fn install_and_uninstall_preserve_a_user_s_own_hooks() {
+        let repo = std::env::temp_dir().join(format!("dross-codex-keep-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&repo);
+        std::fs::create_dir_all(repo.join(".codex")).unwrap();
+        let path = CodexAdapter::hooks_path(&repo);
+        write_json(
+            &path,
+            &json!({
+                "model": "o3",
+                "hooks": {
+                    "PostToolUse": [{ "matcher": "Bash", "command": "make lint" }],
+                    "PreToolUse": [{ "matcher": "Bash", "command": "echo before" }]
+                }
+            }),
+        )
+        .unwrap();
+
+        CodexAdapter.install(&repo).unwrap();
+        CodexAdapter.install(&repo).unwrap();
+
+        let doc = read_json(&path);
+        assert_eq!(doc["model"], "o3", "clobbered an unrelated setting");
+        assert!(
+            doc["hooks"]["PostToolUse"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|e| e["command"] == "make lint"),
+            "dropped the user's own hook"
+        );
+        assert!(
+            doc["hooks"]["PreToolUse"].is_array(),
+            "dropped an event this adapter does not touch"
+        );
+
+        CodexAdapter.uninstall(&repo).unwrap();
+        let after = read_json(&path);
+        assert!(
+            !serde_json::to_string(&after)
+                .unwrap()
+                .contains(DROSS_MARKER),
+            "uninstall left a trace"
+        );
+        assert_eq!(after["model"], "o3");
+        assert!(
+            after["hooks"]["PostToolUse"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|e| e["command"] == "make lint"),
+            "uninstall removed a hook it did not add"
+        );
+        assert!(after["hooks"]["PreToolUse"].is_array());
+
+        std::fs::remove_dir_all(&repo).ok();
+    }
 }
