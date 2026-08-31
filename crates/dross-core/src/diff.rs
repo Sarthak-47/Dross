@@ -298,4 +298,172 @@ mod tests {
         };
         assert!(!h.contains_new_line(10));
     }
+
+    /// Builds a repository with one commit, then a staged edit and a further
+    /// unstaged edit on top of it, so the two targets must disagree.
+    fn repo_with_staged_and_unstaged(tag: &str) -> (std::path::PathBuf, Repo) {
+        let dir = std::env::temp_dir().join(format!("dross-diff-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let repo = git2::Repository::init(&dir).unwrap();
+        let file = dir.join("a.js");
+        let stage = |name: &str| {
+            let mut idx = repo.index().unwrap();
+            idx.add_path(Path::new(name)).unwrap();
+            idx.write().unwrap();
+        };
+
+        std::fs::write(&file, "export const committed = 1;\n").unwrap();
+        stage("a.js");
+        // Committed alongside a.js, and later modified without ever being
+        // staged. It is the only path that separates the two targets: every
+        // other file differs from HEAD in both the index and the working tree.
+        std::fs::write(dir.join("c.js"), "export const c = 1;\n").unwrap();
+        stage("c.js");
+        let tree = repo
+            .find_tree(repo.index().unwrap().write_tree().unwrap())
+            .unwrap();
+        let sig = git2::Signature::now("t", "t@t").unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "init", &tree, &[])
+            .unwrap();
+
+        // Stage a change to a.js, then edit it again without staging.
+        std::fs::write(&file, "export const staged = 2;\n").unwrap();
+        stage("a.js");
+        std::fs::write(&file, "export const unstaged = 3;\n").unwrap();
+
+        // b.js is added to the index and then edited again, so the index and
+        // the working tree hold different content for a path present in both
+        // diffs. This pins which source each target reads.
+        std::fs::write(dir.join("b.js"), "export const b = 9;\n").unwrap();
+        stage("b.js");
+        std::fs::write(dir.join("b.js"), "export const b = 10;\n").unwrap();
+
+        // c.js is modified in the working tree only. The index still matches
+        // HEAD, so the staged target must not report it at all. This is what
+        // pins which diff each target runs.
+        std::fs::write(dir.join("c.js"), "export const c = 2;\n").unwrap();
+
+        (dir.clone(), Repo::open(&dir).unwrap())
+    }
+
+    /// The distinction the whole pre-commit case rests on. If the staged target
+    /// returned working-tree content, the hook would pass judgement on code the
+    /// commit does not contain — and block or clear the wrong thing.
+    #[test]
+    fn staged_and_worktree_targets_see_different_content() {
+        let (dir, repo) = repo_with_staged_and_unstaged("targets");
+
+        let staged = repo.diff(DiffTarget::StagedVsHead).unwrap();
+        let worktree = repo.diff(DiffTarget::WorktreeVsHead).unwrap();
+        let find = |v: &[FileDiff], name: &str| {
+            v.iter()
+                .find(|d| d.path == Path::new(name))
+                .cloned()
+                .unwrap_or_else(|| panic!("{name} missing from diff"))
+        };
+
+        let staged_a = find(&staged, "a.js");
+        let worktree_a = find(&worktree, "a.js");
+        assert!(
+            staged_a.new_source.as_deref().unwrap().contains("staged")
+                && !staged_a.new_source.as_deref().unwrap().contains("unstaged"),
+            "staged target read a.js from the working tree"
+        );
+        assert!(
+            worktree_a
+                .new_source
+                .as_deref()
+                .unwrap()
+                .contains("unstaged"),
+            "worktree target missed the unstaged edit to a.js"
+        );
+
+        // b.js was staged and then edited again, so its later edit exists only
+        // in the working tree. This pair is what actually pins which git2 diff
+        // each target runs: new_source is chosen by target independently, so
+        // asserting on a.js alone still passed when StagedVsHead was rewritten
+        // to diff the working tree.
+        assert!(
+            find(&staged, "b.js")
+                .new_source
+                .as_deref()
+                .unwrap()
+                .contains("= 9"),
+            "staged target read b.js from the working tree"
+        );
+        assert!(
+            find(&worktree, "b.js")
+                .new_source
+                .as_deref()
+                .unwrap()
+                .contains("= 10"),
+            "worktree target read b.js from the index"
+        );
+
+        // c.js is the discriminator. new_source is chosen by target
+        // independently of which diff was run, so content assertions alone
+        // still passed when StagedVsHead was rewritten to diff the working
+        // tree. Only the set of reported paths reveals that.
+        assert!(
+            !staged.iter().any(|d| d.path == Path::new("c.js")),
+            "staged target reported a file that was never staged"
+        );
+        assert!(
+            worktree.iter().any(|d| d.path == Path::new("c.js")),
+            "worktree target missed a working-tree-only change"
+        );
+
+        // Both see the same pre-image, since both diff against HEAD.
+        for d in [&staged_a, &worktree_a] {
+            assert!(d.old_source.as_deref().unwrap().contains("committed"));
+            assert_eq!(d.kind, ChangeKind::Modified);
+            assert_eq!(d.language, Some(Language::JavaScript));
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_clean_tree_produces_no_diff() {
+        let dir = std::env::temp_dir().join(format!("dross-diff-clean-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let repo = git2::Repository::init(&dir).unwrap();
+        std::fs::write(
+            dir.join("a.js"),
+            "export const a = 1;
+",
+        )
+        .unwrap();
+        let mut idx = repo.index().unwrap();
+        idx.add_path(Path::new("a.js")).unwrap();
+        idx.write().unwrap();
+        let tree = repo.find_tree(idx.write_tree().unwrap()).unwrap();
+        let sig = git2::Signature::now("t", "t@t").unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "init", &tree, &[])
+            .unwrap();
+
+        let repo = Repo::open(&dir).unwrap();
+        assert!(repo.diff(DiffTarget::StagedVsHead).unwrap().is_empty());
+        assert!(repo.diff(DiffTarget::WorktreeVsHead).unwrap().is_empty());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The header shows the branch, and a detached HEAD has none. It must come
+    /// back as None rather than as a sha the user would read as a branch name.
+    #[test]
+    fn branch_is_none_on_a_detached_head() {
+        let (dir, repo) = repo_with_staged_and_unstaged("branch");
+        assert!(repo.branch().is_some(), "a normal checkout has a branch");
+
+        let head = repo.inner().head().unwrap().target().unwrap();
+        repo.inner().set_head_detached(head).unwrap();
+        let reopened = Repo::open(&dir).unwrap();
+        assert_eq!(reopened.branch(), None);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
