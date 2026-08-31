@@ -24,8 +24,16 @@ fn path_confinement_rejects_paths_outside_the_repository() {
     let outside = std::env::temp_dir().join(format!("dross-outside-{}.js", std::process::id()));
     std::fs::write(&outside, "secret\n").unwrap();
 
+    // The source pane passes a finding's `span.file` straight to file_source,
+    // and spans are reported repo-relative — `source/loader.js`, not absolute.
+    // Resolving one has to land on the file and read it.
     let resolved = resolve_in_repo(&root, "src/a.js").expect("a path inside the repo resolves");
     assert!(resolved.starts_with(root.canonicalize().unwrap()));
+    assert_eq!(
+        std::fs::read_to_string(&resolved).unwrap(),
+        "export const a = 1;\n",
+        "a repo-relative span must resolve to the file's real contents"
+    );
 
     // Traversal out of the repository, spelled the way a renderer would have
     // to spell it.

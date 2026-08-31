@@ -10,7 +10,13 @@
  * The rule these encode: absent data produces an empty list, never a stand-in.
  */
 
-import type { AdapterStatus, ConnectionCard, HistoryBar, HistoryRow } from "./types";
+import type {
+  AdapterStatus,
+  CodeLine,
+  ConnectionCard,
+  HistoryBar,
+  HistoryRow,
+} from "./types";
 import type { Run } from "./settingsSync";
 
 /** How many recorded runs the table lists. The chart shows all of them. */
@@ -62,4 +68,40 @@ export function toConnectionCards(adapters: AdapterStatus[] | null): ConnectionC
       a.limitations[0] ??
       "No limitation recorded for this integration on this platform.",
   }));
+}
+
+/** Lines of context shown either side of a finding's own range. */
+export const SOURCE_CONTEXT = 8;
+
+/**
+ * The slice of a file the source pane shows for one finding.
+ *
+ * The marker column is "›" on the finding's own lines rather than "+". Dross
+ * reports on ranges the diff touched, but a touched range is not necessarily
+ * an added one, and "+" would assert something about the line that this side
+ * of the app does not know.
+ *
+ * @param startLine 1-based, inclusive, as spans are reported.
+ */
+export function sourceWindow(
+  source: string,
+  startLine: number,
+  endLine: number,
+  context = SOURCE_CONTEXT,
+): CodeLine[] {
+  const lines = source.split(/\r?\n/);
+  // A span past the end of the file means the index is stale against what is
+  // on disk. Showing nothing is right; guessing at a location is not.
+  if (startLine > lines.length || startLine < 1) return [];
+
+  const last = Math.min(endLine, lines.length);
+  const from = Math.max(1, startLine - context);
+  const to = Math.min(lines.length, last + context);
+
+  const out: CodeLine[] = [];
+  for (let n = from; n <= to; n += 1) {
+    const inFinding = n >= startLine && n <= last;
+    out.push(inFinding ? [n, "›", lines[n - 1], 1] : [n, " ", lines[n - 1]]);
+  }
+  return out;
 }

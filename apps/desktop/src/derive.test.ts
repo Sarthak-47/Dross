@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { HISTORY_ROW_LIMIT, toConnectionCards, toHistoryBars, toHistoryRows } from "./derive";
+import {
+  HISTORY_ROW_LIMIT,
+  sourceWindow,
+  toConnectionCards,
+  toHistoryBars,
+  toHistoryRows,
+} from "./derive";
 import type { AdapterStatus } from "./types";
 import type { Run } from "./settingsSync";
 
@@ -112,5 +118,56 @@ describe("toConnectionCards", () => {
 
   it("always has limitation copy, because the card always prints it", () => {
     expect(toConnectionCards([adapter()])[0].limitation).not.toBe("");
+  });
+});
+
+describe("sourceWindow", () => {
+  const file = Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join("\n");
+
+  /** The bug this covers: the split pane's right half rendered an empty code
+   * block for every real finding, because nothing ever read the file. */
+  it("returns the finding's lines plus context either side", () => {
+    const win = sourceWindow(file, 20, 22, 3);
+    expect(win.map((l) => l[0])).toEqual([17, 18, 19, 20, 21, 22, 23, 24, 25]);
+    expect(win.find((l) => l[0] === 20)?.[2]).toBe("line 20");
+  });
+
+  it("marks only the finding's own lines as the hit", () => {
+    const win = sourceWindow(file, 20, 22, 3);
+    expect(win.filter((l) => l[3]).map((l) => l[0])).toEqual([20, 21, 22]);
+    expect(win.filter((l) => !l[3]).every((l) => l[1] === " ")).toBe(true);
+  });
+
+  it("clamps at the start of the file", () => {
+    expect(sourceWindow(file, 2, 2, 8).map((l) => l[0])[0]).toBe(1);
+  });
+
+  it("clamps at the end of the file", () => {
+    const win = sourceWindow(file, 38, 40, 8);
+    expect(win[win.length - 1][0]).toBe(40);
+  });
+
+  /** A span past the end means the index is stale against what is on disk. */
+  it("returns nothing rather than guessing when the span is out of range", () => {
+    expect(sourceWindow(file, 100, 102)).toEqual([]);
+    expect(sourceWindow(file, 0, 1)).toEqual([]);
+  });
+
+  it("truncates an end line that runs past the file", () => {
+    const win = sourceWindow(file, 39, 60, 0);
+    expect(win.map((l) => l[0])).toEqual([39, 40]);
+  });
+
+  it("reads a file with Windows line endings", () => {
+    const crlf = "alpha\r\nbeta\r\ngamma";
+    expect(sourceWindow(crlf, 2, 2, 1).map((l) => l[2])).toEqual([
+      "alpha",
+      "beta",
+      "gamma",
+    ]);
+  });
+
+  it("handles a single-line file", () => {
+    expect(sourceWindow("only", 1, 1)).toEqual([[1, "\u203a", "only", 1]]);
   });
 });

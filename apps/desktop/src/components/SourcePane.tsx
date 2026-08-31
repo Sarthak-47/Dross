@@ -38,6 +38,15 @@ export function SourcePane({
       </div>
 
       <div className="source__scroll">
+        {/* Empty while the file is being read, and stays empty if it could not
+            be read at all — deleted since the analysis, renamed, or binary.
+            Either way this says so; the pane used to render a blank box. */}
+        {finding.code.length === 0 && (
+          <p className="state__body" style={{ padding: "14px 18px" }}>
+            Could not read {finding.file}. It may have changed since the
+            analysis ran.
+          </p>
+        )}
         <pre className="code">
           {finding.code.map(([line, marker, text, hit]) => (
             <div

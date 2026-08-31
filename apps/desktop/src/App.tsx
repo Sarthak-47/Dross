@@ -10,7 +10,12 @@ import { RiskHistory } from "./components/RiskHistory";
 import { Settings } from "./components/Settings";
 import { SourcePane } from "./components/SourcePane";
 import { CHECKS, SIGNALS } from "./fixtures";
-import { toConnectionCards, toHistoryBars, toHistoryRows } from "./derive";
+import {
+  sourceWindow,
+  toConnectionCards,
+  toHistoryBars,
+  toHistoryRows,
+} from "./derive";
 import { applyConfig, groupHistory, toConfig } from "./settingsSync";
 import { deriveView } from "./viewState";
 import type {
@@ -52,6 +57,10 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("findings");
   const [target, setTarget] = useState<Target>("working");
   const [selected, setSelected] = useState(0);
+  /* File contents for the source pane, keyed by repo-relative path. A path maps
+   * to null once reading it has failed, so a missing or unreadable file is not
+   * retried on every render. */
+  const [sources, setSources] = useState<Record<string, string | null>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [progress, setProgress] = useState<IndexProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -128,6 +137,9 @@ export default function App() {
     if (result) {
       setReport(result);
       setSelected(0);
+      // The working tree has moved on since the last read, so cached file
+      // contents would show the source pane lines that no longer exist.
+      setSources({});
       setHistory(await api.riskHistory(400).catch(() => null));
     }
   }, [guard, target]);
@@ -177,6 +189,40 @@ export default function App() {
     [config, signals, checks, cloneThreshold, zThreshold, minSeverity, commitGate],
   );
 
+  const sourceFor = useCallback(
+    (file: string, startLine: number, endLine: number) => {
+      const text = sources[file];
+      return text ? sourceWindow(text, startLine, endLine) : [];
+    },
+    [sources],
+  );
+
+  /* Reads the selected finding's file so the source pane can show the lines it
+   * refers to. Fetched on selection rather than for the whole report: an
+   * analysis can carry hundreds of findings, and reading every file to render
+   * one pane would be work nobody asked for.
+   *
+   * The pane rendered an empty code block until this existed — api.fileSource
+   * was implemented, registered and confinement-tested, but nothing ever
+   * called it. */
+  const selectedFile = report?.findings[selected]?.span.file ?? null;
+  useEffect(() => {
+    if (!selectedFile || selectedFile in sources) return;
+    let cancelled = false;
+    api
+      .fileSource(selectedFile)
+      .then((text) => {
+        if (!cancelled) setSources((prev) => ({ ...prev, [selectedFile]: text }));
+      })
+      .catch(() => {
+        // Deleted, renamed or binary. Recorded as null so it is not retried.
+        if (!cancelled) setSources((prev) => ({ ...prev, [selectedFile]: null }));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedFile, sources]);
+
   /** The analysed findings, shaped for the split pane. */
   const shown = useMemo<{
     findings: SeedFinding[];
@@ -214,10 +260,10 @@ export default function App() {
           { label: "signal", value: f.signal },
           { label: "severity", value: f.severity },
         ],
-        code: [],
+        code: sourceFor(f.span.file, f.span.start_line, f.span.end_line),
       })),
     };
-  }, [report]);
+  }, [report, sourceFor]);
 
   /** Derived, never chosen by the user. See viewState.ts. */
   const view: ViewState = useMemo(
