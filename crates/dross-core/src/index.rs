@@ -567,4 +567,152 @@ mod tests {
         assert_eq!(stats.sample_count, 40);
         assert!(stats.mean > 0.0);
     }
+
+    /// Re-indexing a file has to replace what was there, not add to it.
+    ///
+    /// Untested until now, and the failure is silent: a function deleted from
+    /// a file would stay in the index and go on matching, so clone detection
+    /// would report a duplicate of code that no longer exists.
+    #[test]
+    fn reindexing_a_file_replaces_its_previous_functions() {
+        let mut index = FingerprintIndex::open_in_memory().unwrap();
+        let path = Path::new("src/a.js");
+        let two = "export function one(a) {
+  return a + 1;
+}
+export function two(b) {
+  return b * 2;
+}
+";
+        index.index_file(path, Language::JavaScript, two).unwrap();
+        assert_eq!(index.function_count().unwrap(), 2);
+
+        // `two` is deleted from the file.
+        let one = "export function one(a) {
+  return a + 1;
+}
+";
+        index.index_file(path, Language::JavaScript, one).unwrap();
+        assert_eq!(
+            index.function_count().unwrap(),
+            1,
+            "the removed function survived a re-index"
+        );
+
+        // And its band rows went with it, or it would still be matchable.
+        let parsed = ParsedFile::parse(
+            Language::JavaScript,
+            "function gone(b) {
+  return b * 2;
+}
+",
+        )
+        .unwrap();
+        let func = parsed.functions().into_iter().next().unwrap();
+        let fp = fingerprint(&parsed, &func);
+        let hits = index
+            .find_similar(&fp, 0.8, Some(Path::new("src/other.js")))
+            .unwrap();
+        assert!(
+            hits.is_empty(),
+            "a deleted function was still matchable: {hits:?}"
+        );
+    }
+
+    #[test]
+    fn removing_a_file_clears_its_functions_and_symbols() {
+        let mut index = FingerprintIndex::open_in_memory().unwrap();
+        let path = Path::new("src/a.js");
+        index
+            .index_file(
+                path,
+                Language::JavaScript,
+                "export function one(a) {
+  return a + 1;
+}
+",
+            )
+            .unwrap();
+        assert_eq!(index.function_count().unwrap(), 1);
+        assert_eq!(index.symbol_file_count().unwrap(), 1);
+
+        index.remove_file(path).unwrap();
+        assert_eq!(index.function_count().unwrap(), 0);
+        assert_eq!(
+            index.symbol_file_count().unwrap(),
+            0,
+            "cached symbols outlived the file"
+        );
+    }
+
+    /// A schema bump means fingerprints from the old normalization are not
+    /// comparable with new ones. Leaving them in place would produce matches
+    /// between two different encodings of the same code.
+    #[test]
+    fn a_schema_bump_discards_fingerprints_from_the_old_normalization() {
+        let dir = std::env::temp_dir().join(format!("dross-idx-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("index.sqlite");
+
+        {
+            let mut index = FingerprintIndex::open(&db).unwrap();
+            index
+                .index_file(
+                    Path::new("src/a.js"),
+                    Language::JavaScript,
+                    "export function one(a) {
+  return a + 1;
+}
+",
+                )
+                .unwrap();
+            assert_eq!(index.function_count().unwrap(), 1);
+            // Pretend this index was written by an earlier normalization.
+            index.set_meta("schema_version", "0").unwrap();
+        }
+
+        let reopened = FingerprintIndex::open(&db).unwrap();
+        assert_eq!(
+            reopened.function_count().unwrap(),
+            0,
+            "fingerprints from an older schema were kept"
+        );
+        assert_eq!(
+            reopened.get_meta("schema_version").unwrap().as_deref(),
+            Some("1"),
+            "the schema version was not brought forward"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Reopening at the current version must keep the index, or every run
+    /// would rebuild it from scratch and the cache would buy nothing.
+    #[test]
+    fn reopening_at_the_same_schema_keeps_the_index() {
+        let dir = std::env::temp_dir().join(format!("dross-idx-keep-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("index.sqlite");
+
+        {
+            let mut index = FingerprintIndex::open(&db).unwrap();
+            index
+                .index_file(
+                    Path::new("src/a.js"),
+                    Language::JavaScript,
+                    "export function one(a) {
+  return a + 1;
+}
+",
+                )
+                .unwrap();
+        }
+        let reopened = FingerprintIndex::open(&db).unwrap();
+        assert_eq!(reopened.function_count().unwrap(), 1);
+        assert_eq!(reopened.symbol_file_count().unwrap(), 1);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
