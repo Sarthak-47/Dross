@@ -59,7 +59,14 @@ button {
   border-bottom: 1px solid var(--line);
 }
 
-/* The header never reflows: at narrow widths it clips. */
+/* The header never wraps. What it gives up as it narrows is ordered: the
+   repository path truncates first, the metrics go next, and the actions never
+   go at all.
+
+   They used to. Every child was `flex: none`, so at the window's own 900px
+   minimum the Analyze button — the primary action — sat 214px past the right
+   edge and could not be clicked. A long repository name pushed it off at any
+   width, because nothing here could shrink. */
 .header > * {
   flex: none;
   white-space: nowrap;
@@ -69,7 +76,17 @@ button {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  min-width: 210px;
+  /* Shrinkable, unlike its siblings: this is the part that should give. */
+  flex: 0 1 auto;
+  min-width: 120px;
+  overflow: hidden;
+}
+
+.repo__name,
+.repo__branch,
+.repo__path {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .repo__line {
@@ -104,6 +121,18 @@ button {
   gap: 22px;
   padding-left: 20px;
   border-left: 1px solid var(--line-soft);
+}
+
+/* Dropped below this width so the actions stay reachable. The metrics are a
+   readout and the same numbers appear on the Findings tab.
+
+   Must follow the rule above, not precede it: both selectors are one class, so
+   at equal specificity the later declaration wins and an earlier media block
+   is silently overridden. */
+@media (max-width: 1100px) {
+  .metrics {
+    display: none;
+  }
 }
 
 .metric {
