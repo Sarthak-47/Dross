@@ -264,10 +264,37 @@ fn risk_score(findings: &[Finding]) -> u32 {
 }
 
 /// Walks the repo for indexable source files, honouring ignore rules.
+///
+/// Two sources of truth, in this order: the configured `ignore_dirs`, and then
+/// the repository's own `.gitignore`.
+///
+/// The second used to be missing, and a hardcoded directory list cannot stand
+/// in for it. Indexing this very repository walked `.bench/repos` — twenty-one
+/// full clones of the benchmark corpus, ignored by git and invisible to that
+/// list — and ran past ten minutes. Any project with vendored code or build
+/// output under a name the list does not happen to carry hit the same wall.
+///
+/// Skipping them is also correct rather than merely fast: an ignored file is
+/// not committed, so it can never appear in a diff, and indexing it would let
+/// clone detection point a finding at a file that is not part of the project.
 pub fn source_files(root: &Path, config: &Config) -> Vec<(PathBuf, Language)> {
+    let repo = git2::Repository::open(root).ok();
+    let ignored = |path: &Path| -> bool {
+        if config.is_ignored(path) {
+            return true;
+        }
+        // Checked on directories too, so an ignored tree is pruned rather than
+        // descended into and discarded a file at a time.
+        repo.as_ref()
+            .and_then(|r| r.is_path_ignored(path).ok())
+            .unwrap_or(false)
+    };
+
     walkdir::WalkDir::new(root)
         .into_iter()
-        .filter_entry(|e| !config.is_ignored(e.path()))
+        // The root is never filtered: a repository checked out inside an
+        // ignored path would otherwise index nothing.
+        .filter_entry(|e| e.path() == root || !ignored(e.path()))
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file())
         .filter_map(|e| Language::from_path(e.path()).map(|l| (e.path().to_path_buf(), l)))
@@ -575,5 +602,80 @@ wrapper(7);
             .analyze_diffs(Path::new("."), &[], &AuthorshipMap::new())
             .unwrap();
         assert!(report.summary_line().contains("clean"));
+    }
+
+    /// Regression: the walk consulted only the configured `ignore_dirs`, so a
+    /// directory ignored by git but absent from that list was descended into.
+    /// Indexing this repository walked twenty-one checked-out clones under
+    /// `.bench/repos` and ran past ten minutes.
+    #[test]
+    fn the_walk_skips_directories_the_repository_ignores() {
+        let root = std::env::temp_dir().join(format!("dross-walk-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::create_dir_all(root.join("scratch/nested")).unwrap();
+        std::fs::write(
+            root.join(".gitignore"),
+            "scratch/
+",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("src/kept.js"),
+            "export const a = 1;
+",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("scratch/nested/skipped.js"),
+            "export const b = 2;
+",
+        )
+        .unwrap();
+        git2::Repository::init(&root).unwrap();
+
+        let found = source_files(&root, &Config::default());
+        let names: Vec<String> = found
+            .iter()
+            .map(|(p, _)| p.file_name().unwrap().to_string_lossy().to_string())
+            .collect();
+
+        assert!(names.contains(&"kept.js".to_string()), "{names:?}");
+        assert!(
+            !names.contains(&"skipped.js".to_string()),
+            "an ignored directory was walked: {names:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The built-in list still applies where there is no repository at all, so
+    /// the checks work on a plain directory.
+    #[test]
+    fn the_walk_still_honours_the_configured_list_without_a_repository() {
+        let root = std::env::temp_dir().join(format!("dross-walk-plain-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("node_modules/pkg")).unwrap();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("src/kept.js"),
+            "export const a = 1;
+",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("node_modules/pkg/dep.js"),
+            "export const b = 2;
+",
+        )
+        .unwrap();
+
+        let names: Vec<String> = source_files(&root, &Config::default())
+            .iter()
+            .map(|(p, _)| p.file_name().unwrap().to_string_lossy().to_string())
+            .collect();
+
+        assert_eq!(names, vec!["kept.js".to_string()]);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
