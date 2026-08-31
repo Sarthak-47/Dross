@@ -18,7 +18,11 @@ def blob(repo, commit, path):
         if out.returncode != 0:
             return None
         return out.stdout.decode("utf-8", "replace").splitlines()
-    except Exception:
+    except (OSError, subprocess.TimeoutExpired):
+        # The two things `git show` can actually do to us: the binary is
+        # missing or the path is unreadable, and a repository large enough to
+        # blow the timeout. Anything else is a bug in this script and should
+        # surface rather than be reported as a missing blob.
         return None
 
 def main():
