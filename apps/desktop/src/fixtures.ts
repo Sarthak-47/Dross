@@ -122,7 +122,7 @@ export const SIGNALS: SignalRow[] = [
     def: "on",
     rounds: ["r2 25%", "r3 50%", "r4 42%"],
     reason:
-      "The weakest signal still shipping on. Emitting an error event, handing the error to a callback and passing it to a reporter all count as surfacing now, but judging whether a debug line is sufficient needs intent the syntax does not carry.",
+      "The weakest signal still shipping on. Emitting an error event, handing the error to a callback and passing it to a reporter all count as surfacing, and a handler whose log message says the failure is expected is now read as documenting itself. Judging whether a debug line is sufficient still needs intent the syntax does not carry. This number predates that last change and is a floor, not a current measurement.",
   },
   {
     name: "near-duplicate-function",

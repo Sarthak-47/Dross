@@ -51,9 +51,19 @@ Signals marked *off* ship disabled by default.
 | unused-generality | 6 | 1 | 85.7% | 49–97% | on |
 | overly-broad-catch-type | 9 | 3 | 75.0% | 47–91% | on |
 | pass-through-wrapper | 8 | 4 | 66.7% | 39–86% | on |
-| log-only-catch | 5 | 7 | 41.7% | 19–68% | on |
+| log-only-catch \* | 5 | 7 | 41.7% | 19–68% | on |
 | near-duplicate-function | 0 | 12 | 0.0% | 0–24% | off |
 | silent-optimistic-return | 0 | 12 | 0.0% | 0–24% | off |
+
+\* **log-only-catch has been changed since this was measured.** Two of the
+false positives in this row were a handler whose log message states the failure
+is expected (socket.io's `debug("ignore malformed buffer")`) and Python's
+`warnings.warn`, which is a channel callers can escalate rather than a log
+line. Both are now excluded. Replaying the same 227 commits through the new
+code drops this signal from 25 findings to 19, and all six were read against
+their source and confirmed false — but no true positive was re-checked, so the
+precision above is the last figure actually measured and is left standing.
+Treat it as a floor until a labelling pass replaces it.
 
 ## Signals that ship disabled, and why
 
