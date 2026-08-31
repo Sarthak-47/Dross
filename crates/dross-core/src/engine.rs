@@ -678,4 +678,50 @@ wrapper(7);
         assert_eq!(names, vec!["kept.js".to_string()]);
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    /// Pins the severity weights.
+    ///
+    /// The desktop UI carries the same three numbers — WEIGHT in
+    /// components/Findings.tsx — and prints them beneath the score this
+    /// function produced, as the formula that produced it. They drifted once,
+    /// so the app displayed a formula that did not yield the number beside it.
+    /// derive.test.ts asserts the other copy.
+    #[test]
+    fn risk_weights_are_the_ones_the_ui_prints() {
+        use crate::finding::{CheckId, Finding, Severity, SourceSpan};
+
+        let at = |severity| {
+            Finding::new(
+                CheckId::SwallowedException,
+                "s",
+                severity,
+                SourceSpan {
+                    file: PathBuf::from("a.js"),
+                    start_line: 1,
+                    end_line: 1,
+                },
+                "m",
+                "e",
+            )
+        };
+
+        assert_eq!(risk_score(&[at(Severity::Error)]), 25);
+        assert_eq!(risk_score(&[at(Severity::Warning)]), 8);
+        assert_eq!(risk_score(&[at(Severity::Info)]), 2);
+
+        // 2 errors + 3 warnings + 1 info = 50 + 24 + 2.
+        let mixed = vec![
+            at(Severity::Error),
+            at(Severity::Error),
+            at(Severity::Warning),
+            at(Severity::Warning),
+            at(Severity::Warning),
+            at(Severity::Info),
+        ];
+        assert_eq!(risk_score(&mixed), 76);
+
+        // Capped, not wrapped.
+        assert_eq!(risk_score(&vec![at(Severity::Error); 5]), 100);
+        assert_eq!(risk_score(&[]), 0);
+    }
 }

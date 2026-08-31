@@ -11,8 +11,16 @@ interface Props {
   onOpen: (location: string) => void;
 }
 
-/** Weighted the same way the engine scores: errors dominate, info barely moves it. */
-const WEIGHT = { error: 20, warning: 12, info: 4 } as const;
+/**
+ * The engine's own weights, from `risk_score` in engine.rs: errors dominate,
+ * info barely moves it, and the total is capped at 100.
+ *
+ * These must stay equal to it. They read 20/12/4 while the engine used 25/8/2,
+ * so the formula printed under the score — "weighted: …error(20) + …" — did not
+ * produce the score displayed beside it, and the severity bar's proportions
+ * were wrong with it.
+ */
+export const WEIGHT = { error: 25, warning: 8, info: 2 } as const;
 
 export function Findings({
   findings,
@@ -29,22 +37,23 @@ export function Findings({
     const node = listRef.current;
     if (!node) return;
 
+    // Arrows only. Enter is handled on the row itself: this listener sees the
+    // event from whichever row has focus but would act on `selected`, so
+    // tabbing to a row and pressing Enter opened a different finding's file
+    // than the one under the cursor.
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-        event.preventDefault();
-        const next =
-          event.key === "ArrowDown"
-            ? Math.min(selected + 1, findings.length - 1)
-            : Math.max(selected - 1, 0);
-        onSelect(next);
-      } else if (event.key === "Enter" && findings[selected]) {
-        onOpen(findings[selected].location);
-      }
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+      event.preventDefault();
+      const next =
+        event.key === "ArrowDown"
+          ? Math.min(selected + 1, findings.length - 1)
+          : Math.max(selected - 1, 0);
+      onSelect(next);
     };
 
     node.addEventListener("keydown", onKey);
     return () => node.removeEventListener("keydown", onKey);
-  }, [findings, selected, onSelect, onOpen]);
+  }, [findings, selected, onSelect]);
 
   const counts = {
     error: findings.filter((f) => f.severity === "error").length,
@@ -121,7 +130,12 @@ export function Findings({
               aria-current={isSelected}
               onClick={() => onSelect(index)}
               onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
+                // Enter acts on this row, not on whatever was selected before.
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  onSelect(index);
+                  onOpen(finding.location);
+                } else if (event.key === " ") {
                   event.preventDefault();
                   onSelect(index);
                 }

@@ -6,6 +6,7 @@ import {
   toHistoryBars,
   toHistoryRows,
 } from "./derive";
+import { WEIGHT } from "./components/Findings";
 import type { AdapterStatus } from "./types";
 import type { Run } from "./settingsSync";
 
@@ -169,5 +170,30 @@ describe("sourceWindow", () => {
 
   it("handles a single-line file", () => {
     expect(sourceWindow("only", 1, 1)).toEqual([[1, "\u203a", "only", 1]]);
+  });
+});
+
+/**
+ * The severity weights are duplicated across the Rust engine and the UI, and
+ * the UI prints them as "the formula" directly beneath the score the engine
+ * computed. They read 20/12/4 against the engine's 25/8/2, so the printed
+ * formula did not produce the number beside it.
+ *
+ * engine.rs has a matching test pinning the same three numbers, so a change on
+ * either side fails on that side.
+ */
+describe("risk weights match the engine", () => {
+  it("uses the engine's weights from risk_score in engine.rs", () => {
+    expect(WEIGHT).toEqual({ error: 25, warning: 8, info: 2 });
+  });
+
+  it("reproduces the engine's score for a mixed report", () => {
+    // 2 errors + 3 warnings + 1 info = 50 + 24 + 2 = 76.
+    const score = 2 * WEIGHT.error + 3 * WEIGHT.warning + 1 * WEIGHT.info;
+    expect(score).toBe(76);
+  });
+
+  it("reproduces the engine's cap", () => {
+    expect(Math.min(5 * WEIGHT.error, 100)).toBe(100);
   });
 });
