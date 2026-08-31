@@ -77,12 +77,21 @@ Other commands: `dross check --worktree` for live edits, `dross history` for the
 
 A pre-commit check has to feel instant or it gets uninstalled, so this is
 measured rather than assumed. On a generated 3000-file TypeScript repository,
-checking one changed file takes **~35ms**.
+checking one changed file takes **3ms** of analysis, and **~90ms** end to end
+from the shell — the difference is process start, opening the index and asking
+git for the diff. The second number is the one a hook actually costs you.
+
+Both are from this machine; treat them as an order of magnitude rather than a
+specification.
 
 The index caches per-file symbols and fingerprints. Before that cache existed
 the same check took 2.9 seconds, because the repo-wide symbol table was rebuilt
 by re-parsing every file on every run. Build the index once with `dross index`;
 checks read from it afterwards.
+
+`dross index` walks the tree once, honouring both the configured `ignore_dirs`
+and the repository's own `.gitignore`. Ignored files are never indexed: they
+cannot appear in a diff, so a finding could not point at one anyway.
 
 Without an index the checks still run, falling back to a full walk — correct,
 but slow on a large tree, and clone detection is reported as skipped.
