@@ -16,10 +16,14 @@ use crate::lang::Language;
 
 /// Bumped whenever fingerprinting or normalization changes, so a stale index
 /// is rebuilt rather than silently compared against incompatible signatures.
-/// 2: functions carry the domain vocabulary the clone check compares, which
-/// older rows do not have. A bump discards them rather than treating a missing
-/// vocabulary as an empty one.
-const SCHEMA_VERSION: i64 = 2;
+/// 2: functions carry the domain vocabulary the clone check compares.
+///
+/// 3: version 2 shipped with a migration that could not add the column it had
+/// just declared, so a database upgraded by that build reports version 2 while
+/// still having the version 1 layout. Those cannot be repaired by fixing the
+/// migration — their version already matches — so the number is burned and
+/// they are rebuilt at 3.
+const SCHEMA_VERSION: i64 = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndexedFunction {
@@ -62,6 +66,15 @@ impl FingerprintIndex {
     }
 
     fn migrate(&self) -> Result<()> {
+        // The version has to be read, and acted on, before the tables are
+        // created. `CREATE TABLE IF NOT EXISTS` does nothing to a table that
+        // already exists, so adding a column to the definition below does not
+        // add it to a database written by an older version.
+        //
+        // That is not hypothetical: the vocabulary column shipped exactly that
+        // way. Every existing index reported schema_version 2 while still
+        // having the version 1 layout, every query naming the new column
+        // failed, and clone detection silently found nothing at all.
         self.conn.execute_batch(
             r#"
             PRAGMA journal_mode = WAL;
@@ -69,6 +82,32 @@ impl FingerprintIndex {
                 key   TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
+            "#,
+        )?;
+
+        let existing: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'schema_version'",
+                [],
+                |r| r.get(0),
+            )
+            .optional()?;
+
+        if existing.is_some() && existing.as_deref() != Some(SCHEMA_VERSION.to_string().as_str()) {
+            // Dropped rather than emptied: the layout may differ, not just the
+            // contents. Everything here is derived from the working tree and
+            // is rebuilt by the next `dross index`.
+            self.conn.execute_batch(
+                "DROP TABLE IF EXISTS bands;
+                 DROP TABLE IF EXISTS functions;
+                 DROP TABLE IF EXISTS complexity_baseline;
+                 DROP TABLE IF EXISTS file_symbols;",
+            )?;
+        }
+
+        self.conn.execute_batch(
+            r#"
             CREATE TABLE IF NOT EXISTS functions (
                 id          INTEGER PRIMARY KEY,
                 path        TEXT NOT NULL,
@@ -125,26 +164,7 @@ impl FingerprintIndex {
             "#,
         )?;
 
-        let existing: Option<String> = self
-            .conn
-            .query_row(
-                "SELECT value FROM meta WHERE key = 'schema_version'",
-                [],
-                |r| r.get(0),
-            )
-            .optional()?;
-
-        match existing {
-            Some(v) if v == SCHEMA_VERSION.to_string() => {}
-            Some(_) => {
-                // Fingerprints from an older normalization are not comparable.
-                self.conn.execute_batch(
-                    "DELETE FROM bands; DELETE FROM functions; DELETE FROM complexity_baseline; DELETE FROM file_symbols;",
-                )?;
-                self.set_meta("schema_version", &SCHEMA_VERSION.to_string())?;
-            }
-            None => self.set_meta("schema_version", &SCHEMA_VERSION.to_string())?,
-        }
+        self.set_meta("schema_version", &SCHEMA_VERSION.to_string())?;
         Ok(())
     }
 
@@ -164,6 +184,18 @@ impl FingerprintIndex {
                 r.get(0)
             })
             .optional()?)
+    }
+
+    /// Confirms the index can actually be queried with the current schema.
+    ///
+    /// Clone lookups treat a failed query as "no match", so without this a
+    /// database whose layout does not match the build reports a clean run
+    /// instead of a problem.
+    pub fn health_check(&self) -> Result<()> {
+        self.conn
+            .prepare("SELECT id, path, name, start_line, end_line, line_count, node_count, cyclomatic, signature, shingles, vocabulary FROM functions LIMIT 1")
+            .map(|_| ())
+            .map_err(Into::into)
     }
 
     pub fn function_count(&self) -> Result<usize> {
@@ -732,6 +764,109 @@ export function two(b) {
         let reopened = FingerprintIndex::open(&db).unwrap();
         assert_eq!(reopened.function_count().unwrap(), 1);
         assert_eq!(reopened.symbol_file_count().unwrap(), 1);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A database written by an older version has the older *layout*, not just
+    /// older rows.
+    ///
+    /// The earlier schema test only reopened an index this build had created,
+    /// so it never exercised a real migration. The vocabulary column shipped
+    /// behind `CREATE TABLE IF NOT EXISTS`, which does nothing to an existing
+    /// table: every index in the wild reported the new version while still
+    /// having the old columns, and every query naming the new column failed.
+    #[test]
+    fn an_index_written_by_an_older_version_is_rebuilt_with_the_current_layout() {
+        let dir = std::env::temp_dir().join(format!("dross-migrate-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("index.sqlite");
+
+        // A version 1 database: the functions table without `vocabulary`.
+        {
+            let conn = rusqlite::Connection::open(&db).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                 CREATE TABLE functions (
+                     id INTEGER PRIMARY KEY, path TEXT NOT NULL, name TEXT,
+                     start_line INTEGER NOT NULL, end_line INTEGER NOT NULL,
+                     line_count INTEGER NOT NULL, node_count INTEGER NOT NULL,
+                     cyclomatic INTEGER NOT NULL, signature BLOB NOT NULL,
+                     shingles INTEGER NOT NULL);
+                 CREATE TABLE bands (function_id INTEGER, band_index INTEGER, band_hash INTEGER);
+                 CREATE TABLE file_symbols (path TEXT PRIMARY KEY, symbols TEXT NOT NULL);
+                 CREATE TABLE complexity_baseline (
+                     id INTEGER PRIMARY KEY, commit_sha TEXT NOT NULL,
+                     lines_changed INTEGER NOT NULL, complexity INTEGER NOT NULL,
+                     ratio REAL NOT NULL);
+                 INSERT INTO meta(key, value) VALUES ('schema_version', '1');",
+            )
+            .unwrap();
+        }
+
+        let mut index = FingerprintIndex::open(&db).unwrap();
+
+        // The column the current build needs must exist, not merely be claimed
+        // by the version number.
+        let has_vocabulary: bool = index
+            .conn
+            .prepare("SELECT vocabulary FROM functions LIMIT 1")
+            .is_ok();
+        assert!(
+            has_vocabulary,
+            "the migrated index kept the old layout while reporting the new version"
+        );
+
+        // And the whole path has to work, not just the schema: index a file,
+        // then find its renamed twin through it.
+        index
+            .index_file(
+                Path::new("src/a.js"),
+                Language::JavaScript,
+                "export function computeTotal(items) {
+  let total = 0;
+  for (const item of items) {
+    total += item.price * normalise(item.quantity);
+  }
+  if (total > 100) {
+    return applyCap(total);
+  }
+  return total;
+}
+",
+            )
+            .unwrap();
+        assert_eq!(index.function_count().unwrap(), 1);
+
+        let parsed = ParsedFile::parse(
+            Language::JavaScript,
+            "export function sumBasket(entries) {
+  let acc = 0;
+  for (const entry of entries) {
+    acc += entry.price * normalise(entry.quantity);
+  }
+  if (acc > 100) {
+    return applyCap(acc);
+  }
+  return acc;
+}
+",
+        )
+        .unwrap();
+        let func = parsed.functions().into_iter().next().unwrap();
+        let hits = index
+            .find_similar(
+                &fingerprint(&parsed, &func),
+                0.8,
+                Some(Path::new("src/b.js")),
+            )
+            .expect("lookup must succeed against a migrated index");
+        assert_eq!(hits.len(), 1, "the migrated index could not be queried");
+        assert!(
+            !hits[0].0.vocabulary.is_empty(),
+            "the migrated index stored no vocabulary"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

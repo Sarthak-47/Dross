@@ -129,12 +129,28 @@ impl Engine {
                 });
                 continue;
             }
-            if id == crate::finding::CheckId::StructuralClone && self.index.is_none() {
-                skipped.push(SkippedCheck {
-                    check: id.as_str().to_string(),
-                    reason: "fingerprint index not built yet — run `dross index`".to_string(),
-                });
-                continue;
+            if id == crate::finding::CheckId::StructuralClone {
+                if self.index.is_none() {
+                    skipped.push(SkippedCheck {
+                        check: id.as_str().to_string(),
+                        reason: "fingerprint index not built yet — run `dross index`".to_string(),
+                    });
+                    continue;
+                }
+                // An index that cannot be read must say so. The check queries
+                // it per function and treats a failed lookup as "no match", so
+                // a broken index produced a clean report rather than an error —
+                // which is how a schema mismatch went unnoticed while clone
+                // detection silently found nothing at all.
+                if let Some(index) = self.index.as_ref()
+                    && let Err(e) = index.health_check()
+                {
+                    skipped.push(SkippedCheck {
+                        check: id.as_str().to_string(),
+                        reason: format!("fingerprint index is unreadable: {e}"),
+                    });
+                    continue;
+                }
             }
 
             let mut produced = check.run(&ctx);
