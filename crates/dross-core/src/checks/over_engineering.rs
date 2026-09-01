@@ -246,6 +246,14 @@ fn single_implementation_abstractions(
         if symbols.is_ambiguous(&name) {
             return;
         }
+        // A name that announces itself as a base is a declared extension
+        // point, whether or not this repository happens to extend it twice.
+        // Every finding of this signal on the benchmark corpus was one:
+        // socket.io's `BaseXHR`/`XHR`, `BaseWS`/`WS`, `BaseEmitter`/`Emitter`.
+        // The author has already said what the type is for.
+        if is_declared_base_type(&name) {
+            return;
+        }
         // A type-level contract — an event map, a props or payload shape — is
         // implemented once by design and is not a polymorphic abstraction.
         // socket.io's `SocketReservedEventsMap` and its siblings were all
@@ -286,6 +294,39 @@ fn single_implementation_abstractions(
         ));
     });
     out
+}
+
+/// Whether a type's name declares it an extension point.
+///
+/// `Base*`, `Abstract*` and the `*Base` suffix are the conventional ways of
+/// writing "subclass this". A single implementation inside one repository says
+/// nothing then: the other implementations are expected to live in consumers.
+fn is_declared_base_type(name: &str) -> bool {
+    // Matched on word boundaries, not raw prefixes: `Basename` starts with
+    // "base" and is an ordinary noun.
+    let starts_a_word = |prefix: &str| {
+        name.len() > prefix.len()
+            && name[..prefix.len()].eq_ignore_ascii_case(prefix)
+            && name[prefix.len()..]
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_uppercase() || c == '_')
+    };
+    // `TransportBase` ends in a separate capitalised word; `Database` does
+    // not. The boundary is the case change, so this half is case-sensitive.
+    let ends_a_word = |suffix: &str| {
+        let Some(head) = name.strip_suffix(suffix) else {
+            return false;
+        };
+        head.chars()
+            .next_back()
+            .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+    };
+
+    starts_a_word("base")
+        || starts_a_word("abstract")
+        || ends_a_word("Base")
+        || ends_a_word("Mixin")
 }
 
 /// True when a type declares behaviour rather than only data members.
@@ -584,6 +625,10 @@ fn forwarding_chain_depth(
 
 // --- Signal: complexity-to-problem-size outlier --------------------------
 
+/// Below roughly one added branch per changed line, a change is not complex
+/// however far it sits from the repository's mean.
+const MIN_MEANINGFUL_COMPLEXITY_RATIO: f64 = 1.0;
+
 fn complexity_outlier(ctx: &CheckContext<'_>) -> Vec<Finding> {
     let Some(index) = ctx.index else {
         return Vec::new();
@@ -598,6 +643,13 @@ fn complexity_outlier(ctx: &CheckContext<'_>) -> Vec<Finding> {
     let mut anchor: Option<SourceSpan> = None;
 
     for file in ctx.changed_files() {
+        // Test files, like everywhere else in this codebase. A table-driven
+        // suite is legitimately enormous per line — lodash's test/test.js
+        // measured 31,461 complexity per changed line against a repo baseline
+        // of 4,204 — and calling that over-engineering is meaningless.
+        if super::tautological_test::is_non_production_path(&file.path) {
+            continue;
+        }
         let Some(parsed) = ctx.parsed(&file.path) else {
             continue;
         };
@@ -627,6 +679,17 @@ fn complexity_outlier(ctx: &CheckContext<'_>) -> Vec<Finding> {
         return Vec::new();
     }
     let ratio = total_complexity as f64 / total_lines as f64;
+
+    // A z-score is a statement about the shape of a distribution, not about
+    // whether the thing measured is large. Flask's baseline is 0.50 with a
+    // standard deviation of 0.28, so a change scoring 1.47 lands 3.5 sd out
+    // while adding one branch per two lines — unremarkable code that the
+    // arithmetic makes sound alarming. Below this floor the ratio is too small
+    // for its distance from the mean to mean anything.
+    if ratio < MIN_MEANINGFUL_COMPLEXITY_RATIO {
+        return Vec::new();
+    }
+
     let z = stats.z_score(ratio);
     if z < ctx.config.complexity_z_threshold {
         return Vec::new();
@@ -813,5 +876,29 @@ mod tests {
         );
         let diff = whole_file_diff("a.js", src, Language::JavaScript);
         assert!(pass_through_wrappers(&parsed, &diff, &symbols).is_empty());
+    }
+
+    /// Every single-implementation finding on the benchmark corpus was a type
+    /// whose name already said it was meant to be extended.
+    #[test]
+    fn a_name_that_declares_an_extension_point_is_recognised() {
+        for name in [
+            "BaseXHR",
+            "BaseWS",
+            "BaseEmitter",
+            "AbstractAdapter",
+            "abstract_transport",
+            "TransportBase",
+            "SerializerMixin",
+        ] {
+            assert!(is_declared_base_type(name), "{name} declares itself a base");
+        }
+
+        for name in ["Emitter", "XHR", "ClusterAdapter", "Database", "Basename"] {
+            assert!(
+                !is_declared_base_type(name),
+                "{name} does not declare itself a base"
+            );
+        }
     }
 }
