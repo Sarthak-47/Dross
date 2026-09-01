@@ -38,13 +38,14 @@ export function SourcePane({
       </div>
 
       <div className="source__scroll">
-        {/* Empty while the file is being read, and stays empty if it could not
-            be read at all — deleted since the analysis, renamed, or binary.
-            Either way this says so; the pane used to render a blank box. */}
+        {/* Three states, not two. The pane used to render a blank box for all
+            of them, and then briefly claimed the file could not be read while
+            it was merely still being read. */}
         {finding.code.length === 0 && (
           <p className="state__body" style={{ padding: "14px 18px" }}>
-            Could not read {finding.file}. It may have changed since the
-            analysis ran.
+            {finding.sourceReadable === null
+              ? `Reading ${finding.file}…`
+              : `Could not read ${finding.file}. It may have changed since the analysis ran.`}
           </p>
         )}
         <pre className="code">

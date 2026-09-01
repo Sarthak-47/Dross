@@ -147,6 +147,8 @@ export interface SeedFinding {
   method: string;
   metrics: Metric[];
   code: CodeLine[];
+  /** Null while the file is still being read; false once it could not be. */
+  sourceReadable: boolean | null;
 }
 
 export interface SkippedRow {
@@ -195,7 +197,6 @@ export interface HistoryBar {
 export interface HistoryRow {
   id: string;
   when: string;
-  sha: string;
   subject: string;
   e: number;
   w: number;

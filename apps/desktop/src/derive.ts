@@ -40,10 +40,10 @@ export function toHistoryRows(runs: Run[]): HistoryRow[] {
     .slice(0, HISTORY_ROW_LIMIT)
     .map((run) => ({
       id: run.recordedAt,
-      when: run.recordedAt.replace("T", " · ").slice(0, 16),
-      // The log records findings per run, not the commit they belong to.
-      // Showing a dash is honest; inventing a sha would not be.
-      sha: "—",
+      // Split rather than sliced to a fixed width: replacing "T" with " · "
+      // makes the string longer than the timestamp, so slice(0, 16) cut the
+      // clock in half and the column read "2026-08-12 · 09:".
+      when: `${run.recordedAt.split("T")[0]} · ${(run.recordedAt.split("T")[1] ?? "").slice(0, 5)}`,
       subject: `${run.error + run.warning + run.info} findings recorded`,
       e: run.error,
       w: run.warning,
@@ -116,3 +116,15 @@ export function sourceWindow(
  * were wrong with it.
  */
 export const WEIGHT = { error: 25, warning: 8, info: 2 } as const;
+
+/**
+ * How long a run took, for the status bar.
+ *
+ * Seconds to one decimal reads "0.0s" for anything under 50ms — which is the
+ * normal case, and made a 41ms run look like it had not happened. Below a
+ * second the honest unit is milliseconds.
+ */
+export function formatDuration(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}

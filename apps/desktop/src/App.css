@@ -387,8 +387,11 @@ button {
 }
 
 .split__left {
-  width: 620px;
-  flex: none;
+  /* Shrinkable below its preferred 620px. It was `flex: none`, so at the
+     window's 900px minimum the source pane got 280px, its header needed 335px,
+     and "Open in editor" sat 55px past the right edge of the window. */
+  flex: 0 1 620px;
+  min-width: 360px;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -556,6 +559,29 @@ button {
   text-wrap: pretty;
 }
 
+/* Unselected rows clamp; the selected row shows everything.
+ *
+ * A contract-change finding on a TypeScript union puts the whole type into the
+ * message. One real finding rendered a 554px row of bold text and filled the
+ * list viewport by itself, which defeats the point of a list you scan. Nothing
+ * is hidden: selecting the row expands it, and the full text is in the JSON
+ * output either way. */
+.finding:not([aria-current="true"]) .finding__msg {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+
+.finding:not([aria-current="true"]) .finding__evidence {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
 .finding__meta {
   display: flex;
   flex-wrap: wrap;
@@ -685,6 +711,18 @@ button {
   border-bottom: 1px solid var(--line);
 }
 
+/* The path gives way first; the button never does. */
+.source__path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source__head .btn {
+  flex: none;
+}
+
 .source__path {
   font-family: var(--mono);
   font-size: 12px;
@@ -701,6 +739,9 @@ button {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* Source lines are `white-space: pre` and can be arbitrarily long. Without
+     this they pushed the whole window wider instead of scrolling here. */
+  overflow-x: auto;
   padding-bottom: 22px;
 }
 
@@ -710,6 +751,13 @@ button {
   line-height: 1.75;
   white-space: pre;
   padding: 10px 0;
+}
+
+/* The highlighted line sits on --ember-wash, where --faint drops to 4.46:1.
+   The line the finding points at should read more strongly than its
+   neighbours anyway, not less. */
+.code__line--hit .code__gutter {
+  color: var(--dim);
 }
 
 .code__line {
@@ -974,7 +1022,9 @@ button {
 
 .table__row {
   display: grid;
-  grid-template-columns: 130px 90px 1fr 70px 70px 70px 80px;
+  /* One column fewer since the commit column went: the log records analysis
+     runs, not commits, and nothing has ever written a sha to it. */
+  grid-template-columns: 150px 1fr 70px 70px 70px 80px;
   align-items: center;
   padding: 10px 12px;
   border-bottom: 1px solid var(--line-soft);

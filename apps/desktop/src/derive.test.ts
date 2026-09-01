@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatDuration,
   HISTORY_ROW_LIMIT,
   sourceWindow,
   toConnectionCards,
@@ -86,8 +87,12 @@ describe("toHistoryRows", () => {
     expect(toHistoryBars(runs)).toHaveLength(14);
   });
 
-  it("does not invent a commit sha the log never recorded", () => {
-    expect(toHistoryRows([run("2026-08-21T10:00:00Z", 1)])[0].sha).toBe("—");
+  /** The column read "2026-08-12 · 09:" because a fixed-width slice cut the
+   * clock in half after "T" was widened to " · ". */
+  it("renders a complete date and time", () => {
+    expect(toHistoryRows([run("2026-08-21T10:35:00Z", 1)])[0].when).toBe(
+      "2026-08-21 · 10:35",
+    );
   });
 
   it("bounds the risk score at 100", () => {
@@ -195,5 +200,19 @@ describe("risk weights match the engine", () => {
 
   it("reproduces the engine's cap", () => {
     expect(Math.min(5 * WEIGHT.error, 100)).toBe(100);
+  });
+});
+
+describe("formatDuration", () => {
+  /** A 41ms run rendered as "0.0s", which reads as though nothing ran. */
+  it("uses milliseconds below a second", () => {
+    expect(formatDuration(41)).toBe("41ms");
+    expect(formatDuration(0)).toBe("0ms");
+    expect(formatDuration(999)).toBe("999ms");
+  });
+
+  it("uses seconds at a second and above", () => {
+    expect(formatDuration(1000)).toBe("1.0s");
+    expect(formatDuration(2940)).toBe("2.9s");
   });
 });

@@ -22,6 +22,13 @@ export function Findings({
 }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
 
+  /* Where the selection is, readable from the key handler without re-binding
+   * it on every move. The handler used to close over `selected`, so a burst of
+   * key events that arrived before React re-rendered all computed the same
+   * next index: thirty presses advanced the selection by one. Holding an arrow
+   * key is exactly that burst. */
+  const selectedRef = useRef(selected);
+
   // Arrow keys move the selection; Enter opens the editor.
   useEffect(() => {
     const node = listRef.current;
@@ -36,14 +43,38 @@ export function Findings({
       event.preventDefault();
       const next =
         event.key === "ArrowDown"
-          ? Math.min(selected + 1, findings.length - 1)
-          : Math.max(selected - 1, 0);
+          ? Math.min(selectedRef.current + 1, findings.length - 1)
+          : Math.max(selectedRef.current - 1, 0);
+      // Advanced here as well as in state, so the next event in the same burst
+      // starts from this one rather than from the last render.
+      selectedRef.current = next;
       onSelect(next);
     };
 
     node.addEventListener("keydown", onKey);
     return () => node.removeEventListener("keydown", onKey);
-  }, [findings, selected, onSelect]);
+  }, [findings.length, onSelect]);
+
+  // Keep the selection in view.
+  //
+  // Without this the arrow keys moved a selection that stayed put on screen:
+  // twelve presses down a real report put the selected row 1,200px below the
+  // visible area, and the list never scrolled. It was invisible while the only
+  // test data was three fixture rows that all fitted at once.
+  //
+  // `nearest` so a row already on screen does not jump, and so clicking a row
+  // never scrolls the list out from under the cursor.
+  useEffect(() => {
+    // Also where the ref is resynced, rather than during render: a click, or
+    // an analysis resetting to the top, has to be where the next arrow press
+    // starts from.
+    selectedRef.current = selected;
+
+    const row = listRef.current?.children[selected];
+    if (row instanceof HTMLElement) {
+      row.scrollIntoView({ block: "nearest" });
+    }
+  }, [selected]);
 
   const counts = {
     error: findings.filter((f) => f.severity === "error").length,

@@ -11,6 +11,7 @@ import { Settings } from "./components/Settings";
 import { SourcePane } from "./components/SourcePane";
 import { CHECKS, SIGNALS } from "./fixtures";
 import {
+  formatDuration,
   sourceWindow,
   toConnectionCards,
   toHistoryBars,
@@ -261,9 +262,11 @@ export default function App() {
           { label: "severity", value: f.severity },
         ],
         code: sourceFor(f.span.file, f.span.start_line, f.span.end_line),
+        // undefined: not fetched yet. null: the read failed.
+        sourceReadable: sources[f.span.file] === undefined ? null : sources[f.span.file] !== null,
       })),
     };
-  }, [report, sourceFor]);
+  }, [report, sourceFor, sources]);
 
   /** Derived, never chosen by the user. See viewState.ts. */
   const view: ViewState = useMemo(
@@ -553,7 +556,7 @@ export default function App() {
           {busy
             ? `${busy.toLowerCase()}…`
             : report
-              ? `last run ${(report.duration_ms / 1000).toFixed(1)}s · ${report.files_analyzed} files · deterministic`
+              ? `last run ${formatDuration(report.duration_ms)} · ${report.files_analyzed} files · deterministic`
               : "idle"}
         </span>
       </div>

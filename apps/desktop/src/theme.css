@@ -72,7 +72,10 @@
      * metric labels, column headers and status bar, so it was the single cause
      * of every light-mode contrast failure. */
     --faint: #666c72;
-    --ember: #b34e18;
+    /* Darkened from #b34e18, which measured 4.43:1 as the accent button's text
+     * on --panel2 and 4.39:1 as the source-pane marker on --ember-wash. Both
+     * only became visible once the source pane rendered real code. */
+    --ember: #a84716;
     --on-ember: #ffffff;
     --ember-hi: #8f3d11;
     --ember-dim: #d9a684;
@@ -100,7 +103,10 @@
    * metric labels, column headers and status bar, so it was the single cause
    * of every light-mode contrast failure. */
   --faint: #666c72;
-  --ember: #b34e18;
+  /* Darkened from #b34e18, which measured 4.43:1 as the accent button's text
+   * on --panel2 and 4.39:1 as the source-pane marker on --ember-wash. Both
+   * only became visible once the source pane rendered real code. */
+  --ember: #a84716;
   --on-ember: #ffffff;
   --ember-hi: #8f3d11;
   --ember-dim: #d9a684;

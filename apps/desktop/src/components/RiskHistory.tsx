@@ -74,7 +74,6 @@ export function RiskHistory({
         <div className="table">
           <div className="table__row table__row--head">
             <span>when</span>
-            <span>commit</span>
             <span>subject</span>
             <span>error</span>
             <span>warn</span>
@@ -84,7 +83,6 @@ export function RiskHistory({
           {rows.map((row) => (
             <div className="table__row" key={row.id}>
               <span style={{ color: "var(--dim)" }}>{row.when}</span>
-              <span style={{ color: "var(--ember)" }}>{row.sha}</span>
               <span className="table__subject">{row.subject}</span>
               <span style={{ color: "var(--text)" }}>{row.e}</span>
               <span style={{ color: "var(--dim)" }}>{row.w}</span>
