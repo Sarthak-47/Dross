@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Loc } from "./controls";
+import { WEIGHT } from "../derive";
 import { AUTHORSHIP_TEXT, type SeedFinding, type SkippedRow } from "../types";
 
 interface Props {
@@ -10,17 +11,6 @@ interface Props {
   onSelect: (index: number) => void;
   onOpen: (location: string) => void;
 }
-
-/**
- * The engine's own weights, from `risk_score` in engine.rs: errors dominate,
- * info barely moves it, and the total is capped at 100.
- *
- * These must stay equal to it. They read 20/12/4 while the engine used 25/8/2,
- * so the formula printed under the score — "weighted: …error(20) + …" — did not
- * produce the score displayed beside it, and the severity bar's proportions
- * were wrong with it.
- */
-export const WEIGHT = { error: 25, warning: 8, info: 2 } as const;
 
 export function Findings({
   findings,

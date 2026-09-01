@@ -5,8 +5,8 @@ import {
   toConnectionCards,
   toHistoryBars,
   toHistoryRows,
+  WEIGHT,
 } from "./derive";
-import { WEIGHT } from "./components/Findings";
 import type { AdapterStatus } from "./types";
 import type { Run } from "./settingsSync";
 
