@@ -30,6 +30,14 @@ pub struct RunArgs {
     #[arg(long)]
     agent_only: bool,
 
+    /// Measure every signal, including the ones that ship disabled.
+    ///
+    /// Without this the harness runs `Config::default()`, so a signal that was
+    /// switched off after measuring badly can never be measured again — which
+    /// is precisely when a re-measurement is wanted.
+    #[arg(long)]
+    all_signals: bool,
+
     #[arg(long, default_value = ".bench/findings.jsonl")]
     out: PathBuf,
 }
@@ -125,7 +133,12 @@ fn replay(
     // The index is built once per repo and lives inside that repo's own
     // .dross directory, so a benchmark run leaves no state elsewhere.
     let index = FingerprintIndex::open(&Config::index_path(repo_path))?;
-    let mut engine = Engine::new(Config::default()).with_index(index);
+    let mut config = Config::default();
+    if args.all_signals {
+        config.disabled_signals.clear();
+        config.disabled_checks.clear();
+    }
+    let mut engine = Engine::new(config).with_index(index);
     engine.build_index(repo_path, |_, _| {})?;
     engine.build_complexity_baseline(repo_path, args.commits)?;
 

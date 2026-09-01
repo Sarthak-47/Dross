@@ -7,6 +7,7 @@
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use crate::ast::ParsedFile;
@@ -15,7 +16,10 @@ use crate::lang::Language;
 
 /// Bumped whenever fingerprinting or normalization changes, so a stale index
 /// is rebuilt rather than silently compared against incompatible signatures.
-const SCHEMA_VERSION: i64 = 1;
+/// 2: functions carry the domain vocabulary the clone check compares, which
+/// older rows do not have. A bump discards them rather than treating a missing
+/// vocabulary as an empty one.
+const SCHEMA_VERSION: i64 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndexedFunction {
@@ -28,6 +32,9 @@ pub struct IndexedFunction {
     pub line_count: usize,
     pub node_count: usize,
     pub cyclomatic: usize,
+    /// Member and callee names, for separating a reinvention from deliberate
+    /// parallel structure. See `fingerprint::vocabulary`.
+    pub vocabulary: BTreeSet<String>,
 }
 
 pub struct FingerprintIndex {
@@ -72,7 +79,8 @@ impl FingerprintIndex {
                 node_count  INTEGER NOT NULL,
                 cyclomatic  INTEGER NOT NULL,
                 signature   BLOB NOT NULL,
-                shingles    INTEGER NOT NULL
+                shingles    INTEGER NOT NULL,
+                vocabulary  TEXT NOT NULL DEFAULT ''
             );
             CREATE INDEX IF NOT EXISTS idx_functions_path ON functions(path);
 
@@ -198,8 +206,8 @@ impl FingerprintIndex {
             let metrics = crate::metrics::function_metrics(&parsed, &func);
             tx.execute(
                 "INSERT INTO functions
-                 (path, name, start_line, end_line, line_count, node_count, cyclomatic, signature, shingles)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                 (path, name, start_line, end_line, line_count, node_count, cyclomatic, signature, shingles, vocabulary)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 params![
                     path_str,
                     func.name,
@@ -210,6 +218,7 @@ impl FingerprintIndex {
                     metrics.cyclomatic as i64,
                     encode_signature(&fp.signature),
                     fp.shingle_count as i64,
+                    encode_vocabulary(&crate::fingerprint::vocabulary(&parsed, &func)),
                 ],
             )?;
             let id = tx.last_insert_rowid();
@@ -324,7 +333,7 @@ impl FingerprintIndex {
         Ok(self
             .conn
             .query_row(
-                "SELECT id, path, name, start_line, end_line, line_count, node_count, cyclomatic, signature, shingles
+                "SELECT id, path, name, start_line, end_line, line_count, node_count, cyclomatic, signature, shingles, vocabulary
                  FROM functions WHERE id = ?1",
                 params![id],
                 |r| {
@@ -342,6 +351,7 @@ impl FingerprintIndex {
                             signature: decode_signature(&sig),
                             shingle_count: r.get::<_, i64>(9)? as usize,
                         },
+                        vocabulary: decode_vocabulary(&r.get::<_, String>(10)?),
                     })
                 },
             )
@@ -463,6 +473,16 @@ pub struct RiskEntry {
 
 /// LSH banding: 32 bands of 4 rows each over the 128-slot signature.
 const BAND_ROWS: usize = 4;
+
+/// Stored as a single space-separated string. The set is small and only ever
+/// read back whole, so a separate table would cost a join for nothing.
+fn encode_vocabulary(words: &BTreeSet<String>) -> String {
+    words.iter().cloned().collect::<Vec<_>>().join(" ")
+}
+
+fn decode_vocabulary(raw: &str) -> BTreeSet<String> {
+    raw.split_whitespace().map(str::to_string).collect()
+}
 
 fn band_hashes(signature: &[u64]) -> Vec<(usize, i64)> {
     if signature.len() != NUM_HASHES {
@@ -680,7 +700,7 @@ export function two(b) {
         );
         assert_eq!(
             reopened.get_meta("schema_version").unwrap().as_deref(),
-            Some("1"),
+            Some(SCHEMA_VERSION.to_string().as_str()),
             "the schema version was not brought forward"
         );
 
