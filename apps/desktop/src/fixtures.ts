@@ -158,7 +158,7 @@ export const SIGNALS: SignalRow[] = [
     def: "off",
     rounds: ["r2 0%", "r3 0%", "r4 —"],
     reason:
-      "Zero of 24. What it finds are published extension points subclassed by consumers the repository cannot see, and name-based resolution cannot distinguish those from speculative generality.",
+      "Zero of 24. What it found were published extension points subclassed by consumers the repository cannot see. A type named Base*, Abstract* or *Base is the author saying \"subclass this\", and those are excluded now — every finding on the corpus was one, and the volume fell by 44%. Still off: the remainder has not been labelled.",
   },
   {
     name: "complexity-to-problem-size-outlier",
@@ -167,7 +167,7 @@ export const SIGNALS: SignalRow[] = [
     def: "off",
     rounds: ["r2 0%", "r3 —", "r4 —"],
     reason:
-      "It summed the complexity of every function a change touched rather than the complexity the change added, so a repository-wide reformat scored 8.4 standard deviations while adding nothing. That is fixed but not re-validated, and a signal that fired on a formatting commit has to earn its way back on.",
+      "It summed the complexity of every function a change touched rather than the complexity the change added, so a repository-wide reformat scored 8.4 standard deviations while adding nothing. Fixed, and it no longer runs on test suites or on changes whose absolute complexity is trivial — a z-score describes a distribution, not a magnitude. Not re-validated, and a signal that fired on a formatting commit has to earn its way back on.",
   },
 ];
 
