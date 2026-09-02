@@ -65,6 +65,17 @@ impl FileDiff {
             .any(|h| h.new_lines > 0 && h.new_start <= end && h.new_end() >= start)
     }
 
+    /// True when a hunk covers the whole inclusive range, i.e. every line of
+    /// it is part of this change rather than merely adjacent to one.
+    ///
+    /// `touches_range` answers "was this edited"; this answers "was this
+    /// written here". Reinvention is the second question.
+    pub fn contains_range(&self, start: usize, end: usize) -> bool {
+        self.hunks
+            .iter()
+            .any(|h| h.new_lines > 0 && h.new_start <= start && h.new_end() >= end)
+    }
+
     pub fn changed_line_count(&self) -> usize {
         self.hunks.iter().map(|h| h.new_lines).sum()
     }
@@ -465,5 +476,53 @@ mod tests {
         assert_eq!(reopened.branch(), None);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// "Was this edited" and "was this written here" are different questions,
+    /// and clone detection needs the second. A one-line fix inside a function
+    /// that has existed for years touches it without writing it.
+    #[test]
+    fn containment_is_stricter_than_touching() {
+        let file = FileDiff {
+            path: std::path::PathBuf::from("a.js"),
+            old_path: None,
+            kind: ChangeKind::Modified,
+            language: Some(Language::JavaScript),
+            // One line changed, deep inside a function spanning 10..40.
+            hunks: vec![Hunk {
+                new_start: 25,
+                new_lines: 1,
+                old_start: 25,
+                old_lines: 1,
+            }],
+            new_source: None,
+            old_source: None,
+        };
+
+        assert!(
+            file.touches_range(10, 40),
+            "the edit is inside the function"
+        );
+        assert!(
+            !file.contains_range(10, 40),
+            "a one-line edit does not make the whole function new"
+        );
+
+        // A function written entirely by this change.
+        let added = FileDiff {
+            hunks: vec![Hunk {
+                new_start: 1,
+                new_lines: 40,
+                old_start: 0,
+                old_lines: 0,
+            }],
+            ..file
+        };
+        assert!(added.contains_range(10, 40));
+        assert!(added.contains_range(1, 40), "the exact hunk bounds count");
+        assert!(
+            !added.contains_range(1, 41),
+            "one line past the hunk does not"
+        );
     }
 }

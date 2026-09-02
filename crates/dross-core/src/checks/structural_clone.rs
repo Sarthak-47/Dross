@@ -96,7 +96,18 @@ impl Check for StructuralCloneCheck {
                 continue;
             };
             for func in parsed.functions() {
-                if !file.touches_range(func.start_line, func.end_line) {
+                // The whole function has to be part of this change, not merely
+                // overlapped by it. Reinvention is logic written without
+                // knowing the original was there; editing a line inside a
+                // function that has existed for years is not that.
+                //
+                // This is what the surviving corpus findings all were:
+                // date-fns's `differenceInMinutes` matching
+                // `differenceInSeconds`, `startOfDecade` matching
+                // `endOfDecade`, socket.io's `socketsJoin` matching
+                // `socketsLeave`. Long-standing sibling APIs, touched by a
+                // diff and then compared against each other.
+                if !file.contains_range(func.start_line, func.end_line) {
                     continue;
                 }
                 // An unnamed function produces an unactionable finding
