@@ -79,7 +79,9 @@ accurate ones with it.
   `template_*` decorator family, per-locale formatters, two adapters
   implementing one interface. The seeded corpus shows the check can find a
   renamed duplicate; real repositories are mostly full of intentional twins,
-  and it cannot tell the two apart.
+  and it could not tell the two apart. **See the section below — this has
+  since been worked on, and the volume is down 77%, but it stays disabled
+  until it is labelled again.**
 - **silent-optimistic-return** — 0% in three rounds. Returning a default on
   failure is the documented contract far more often than it is a hidden
   failure: predicates, `get_or_none` lookups, best-effort serialisation,
@@ -88,8 +90,53 @@ accurate ones with it.
   `if` is not a one-variant registry.
 - **single-implementation-abstraction** — 0 of 24. What it finds are
   published extension points subclassed by consumers outside the repository.
-- **complexity-to-problem-size-outlier** — 0 of 12. Now measures added rather
-  than touched complexity, but has not been re-validated.
+- **complexity-to-problem-size-outlier** — 0 of 12. Measures added rather than
+  touched complexity, and no longer runs on test files or on changes whose
+  absolute complexity is trivial. Not re-labelled.
+
+## Reworking the disabled signals
+
+Measured with `dross-bench run --all-signals`, which exists because the harness
+ran `Config::default()` — so a signal switched off after measuring badly could
+never be measured again, which is exactly when a re-measurement is wanted. Same
+22 repositories, 120 commits each, before and after.
+
+| Signal | Findings before | After | Change |
+|---|---:|---:|---|
+| near-duplicate-function | 485 | **111** | −77% |
+| single-implementation-abstraction | 9 | **5** | −44% |
+| complexity-to-problem-size-outlier | 19 | 21 | +2 |
+
+**This is finding volume, not precision.** No labelling pass has been run over
+the new output, so none of these is re-enabled. A 77% drop in a signal that was
+scoring 0% is a reason to go and label it, not a reason to trust it.
+
+What changed, and why it was the right target: every previous attempt filtered
+on *shape*, which is what the true and false positives have in common.
+Normalization erases identifiers, and that is both what lets a renamed copy
+match its original and what makes two parallel validators look identical. The
+discriminator is vocabulary — the members a function reaches for and the
+functions it calls, the part that survives a rename. The seeded duplicate
+renames every local but still reads `.price` and `.quantity`.
+
+Three corrections came out of reading the residue rather than guessing:
+
+- Requiring three shared terms instead of two would have removed 137 of 238
+  findings. It also removes the seeded duplicate, which shares exactly `price`
+  and `quantity`. The problem was never the count: 114 of those 137 were
+  Flask's decorators matching on `Callable` and `callable`, a type annotation
+  and a builtin. Language vocabulary is now excluded from the comparison.
+- httpx pairs a public `same_origin` with a private `_same_origin`. The
+  same-name filter already covered that; the underscore hid it.
+- date-fns keeps suites in files named `test.ts`, which the test-path
+  patterns missed, so the complexity signal reported a test suite as
+  over-engineered.
+
+**What remains, and the limit of the approach.** 96 of the 111 surviving
+findings are date-fns: `differenceInMinutes` against `differenceInSeconds`,
+`startOfDecade` against `endOfDecade`. Sibling APIs in a single-subject library
+share real vocabulary, because they are genuinely about the same things.
+Vocabulary cannot separate those, and nothing in this round claims to.
 
 ## Recall
 

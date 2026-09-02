@@ -131,7 +131,7 @@ export const SIGNALS: SignalRow[] = [
     def: "off",
     rounds: ["r2 8%", "r3 8%", "r4 0%"],
     reason:
-      "Three rounds and three fix attempts; each cut the volume without moving the false-positive rate. In a mature codebase structurally identical functions are almost always deliberate parallel structure — a decorator family, one formatter per locale, two adapters behind one interface. The seeded corpus shows it can find a renamed duplicate; real repositories are full of intentional twins and it cannot tell the two apart.",
+      "Structural identity alone could not tell an accidental reinvention from deliberate parallel structure — two adapters, a locale family, a pair of validators. It now also compares the vocabulary a function uses: the members it reaches for and the functions it calls, which is what survives a rename. That cut finding volume on the corpus by 77%, but the output has not been labelled since, so the number beside this signal is still the last one measured and it stays off.",
   },
   {
     name: "silent-optimistic-return",
