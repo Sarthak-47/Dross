@@ -99,6 +99,14 @@ pub fn is_test_path(path: &std::path::Path) -> bool {
         || s.contains("__tests__")
         || s.rsplit('/').next().is_some_and(|f| f.starts_with("test_"))
         || s.ends_with("_test.py")
+        // A file simply called `test.ts` or `tests.py`, which the patterns
+        // above miss: they want `.test.` or a `/test/` directory. date-fns
+        // keeps its suites at `src/tzOffset/tests.ts` and
+        // `pkgs/core/src/format/test.ts`.
+        || s.rsplit('/')
+            .next()
+            .and_then(|f| f.split('.').next())
+            .is_some_and(|stem| stem == "test" || stem == "tests")
 }
 
 struct Assertion<'a> {
@@ -446,5 +454,31 @@ mod tests {
         assert!(is_test_path(std::path::Path::new("src/a.test.ts")));
         assert!(is_test_path(std::path::Path::new("tests/test_a.py")));
         assert!(!is_test_path(std::path::Path::new("src/a.ts")));
+    }
+
+    /// A suite in a file simply called `test.ts`. The other patterns want
+    /// `.test.` or a `/test/` directory, so date-fns's
+    /// `pkgs/core/src/format/test.ts` and `src/tzOffset/tests.ts` were treated
+    /// as production code — which is how the complexity signal came to report
+    /// a test suite as over-engineered.
+    #[test]
+    fn a_file_named_test_is_a_test_file() {
+        use std::path::Path;
+        for p in [
+            "pkgs/core/src/format/test.ts",
+            "src/tzOffset/tests.ts",
+            "a/b/test.py",
+            "tests.js",
+        ] {
+            assert!(is_test_path(Path::new(p)), "{p} is a test file");
+        }
+        for p in [
+            "src/latest/index.ts",
+            "src/contest/index.ts",
+            "src/protest.py",
+            "src/testing_utils_for_users.ts",
+        ] {
+            assert!(!is_test_path(Path::new(p)), "{p} is production code");
+        }
     }
 }

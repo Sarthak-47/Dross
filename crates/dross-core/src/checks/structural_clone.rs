@@ -54,7 +54,23 @@ const MIN_VOCABULARY_OVERLAP: f64 = 0.5;
 
 /// Below this, an overlap ratio is coincidence — two functions that both call
 /// `push` are not the same logic.
+///
+/// Raising this to three would have removed 137 of 238 corpus findings, but it
+/// also removes the seeded duplicate, which shares exactly `price` and
+/// `quantity`. The noise those 137 carried was not that two terms is too few;
+/// it was that `Callable` and `callable` are not terms at all. That is fixed
+/// where the vocabulary is built, not by counting higher.
 const MIN_SHARED_TERMS: usize = 2;
+
+/// Whether a twin carries the same name, ignoring leading underscores.
+///
+/// `same_origin` beside `_same_origin`, `obfuscate_sensitive_headers` beside
+/// `_obfuscate_sensitive_headers` — httpx keeps a public wrapper next to the
+/// private implementation it delegates to. That pair is deliberate, and the
+/// underscore is the only thing that made it look like two different names.
+fn is_same_name(twin: Option<&str>, candidate: &str) -> bool {
+    twin.is_some_and(|t| t.trim_start_matches('_') == candidate.trim_start_matches('_'))
+}
 
 pub struct StructuralCloneCheck;
 
@@ -119,7 +135,7 @@ impl Check for StructuralCloneCheck {
                 // everywhere resolution is uncertain.
                 let hits: Vec<_> = hits
                     .into_iter()
-                    .filter(|(twin, _)| twin.name.as_deref() != Some(func_name))
+                    .filter(|(twin, _)| !is_same_name(twin.name.as_deref(), func_name))
                     .collect();
                 // Structural identity is not enough on its own. Require the
                 // pair to be talking about the same things as well as in the
@@ -479,5 +495,19 @@ mod tests {
             1,
             "a renamed duplicate of the same logic must still be reported"
         );
+    }
+
+    /// httpx keeps `same_origin` beside `_same_origin` and
+    /// `obfuscate_sensitive_headers` beside its underscored implementation.
+    /// The underscore was the only thing making those look like two names.
+    #[test]
+    fn a_public_wrapper_and_its_private_implementation_are_one_name() {
+        assert!(is_same_name(Some("_same_origin"), "same_origin"));
+        assert!(is_same_name(Some("same_origin"), "_same_origin"));
+        assert!(is_same_name(Some("__private"), "private"));
+        assert!(is_same_name(Some("computeTotal"), "computeTotal"));
+
+        assert!(!is_same_name(Some("sumBasket"), "computeTotal"));
+        assert!(!is_same_name(None, "computeTotal"));
     }
 }

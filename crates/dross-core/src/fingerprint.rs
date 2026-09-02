@@ -146,11 +146,39 @@ pub fn vocabulary(file: &ParsedFile, func: &FunctionDef) -> BTreeSet<String> {
         }
         let text = file.text(n).trim();
         // Single characters are almost always loop or lambda variables.
-        if text.len() > 1 {
+        if text.len() > 1 && !is_language_vocabulary(text) {
             words.insert(text.to_string());
         }
     });
     words
+}
+
+/// Names belonging to the language rather than to the code's subject.
+///
+/// Vocabulary is meant to answer "are these two functions about the same
+/// thing". A type annotation reached through `t.Callable`, or the `callable`
+/// builtin, answers nothing: every Flask decorator has both. On the benchmark
+/// corpus that single pair accounted for 114 of 238 clone findings, all of
+/// them Flask's deliberate `template_*` family.
+///
+/// Deliberately short, and only names that appear across every domain. A word
+/// that is merely common in one repository is that repository's subject, and
+/// belongs in the comparison.
+fn is_language_vocabulary(word: &str) -> bool {
+    matches!(
+        word,
+        // Typing vocabulary.
+        "Any" | "AnyStr" | "Awaitable" | "Callable" | "Coroutine" | "Dict" | "Generic"
+            | "Iterable" | "Iterator" | "List" | "Mapping" | "Optional" | "Sequence" | "Set"
+            | "Tuple" | "Type" | "TypeVar" | "Union" | "Partial" | "Readonly" | "Record"
+            // Builtins and universal members.
+            | "bool" | "callable" | "cls" | "dict" | "float" | "format" | "getattr"
+            | "hasattr" | "int" | "isinstance" | "len" | "list" | "repr" | "self" | "set"
+            | "setattr" | "str" | "super" | "tuple"
+            | "Array" | "Boolean" | "Number" | "Object" | "Promise" | "String"
+            | "apply" | "bind" | "call" | "constructor" | "length" | "prototype"
+            | "toString" | "valueOf"
+    )
 }
 
 /// Jaccard overlap of two vocabularies, 0.0 when either is empty.
@@ -406,5 +434,60 @@ mod tests {
             "{pv:?} {jv:?}"
         );
         assert!(pv.contains("sum") && jv.contains("sum"));
+    }
+
+    /// Flask's `template_*` decorators were 114 of 238 corpus clone findings,
+    /// and every one of them matched on `Callable` and `callable` alone.
+    #[test]
+    fn language_vocabulary_is_not_domain_vocabulary() {
+        let flask_shaped = |name: &str| {
+            let src = format!(
+                "def {name}(self, name=None):
+    def decorator(f):
+        if callable(name):
+            return t.Callable(f)
+        return f
+    return decorator
+"
+            );
+            let file = ParsedFile::parse(Language::Python, &src).unwrap();
+            let func = file.functions().into_iter().next().unwrap();
+            vocabulary(&file, &func)
+        };
+
+        let a = flask_shaped("template_test");
+        let b = flask_shaped("app_template_filter");
+        assert!(
+            !a.contains("Callable"),
+            "a type annotation is not a subject: {a:?}"
+        );
+        assert!(!a.contains("callable"), "a builtin is not a subject: {a:?}");
+        assert!(
+            shared_vocabulary(&a, &b).len() < 2,
+            "two functions sharing only language vocabulary share nothing: {:?}",
+            shared_vocabulary(&a, &b)
+        );
+    }
+
+    /// The stoplist must not swallow real subjects. `price` and `quantity` are
+    /// the entire evidence for the seeded duplicate.
+    #[test]
+    fn domain_words_survive_the_stoplist() {
+        for word in [
+            "price",
+            "quantity",
+            "normalise",
+            "applyCap",
+            "seconds",
+            "headers",
+        ] {
+            assert!(!is_language_vocabulary(word), "{word} is a subject");
+        }
+        for word in ["Callable", "callable", "toString", "length", "isinstance"] {
+            assert!(
+                is_language_vocabulary(word),
+                "{word} is language vocabulary"
+            );
+        }
     }
 }
