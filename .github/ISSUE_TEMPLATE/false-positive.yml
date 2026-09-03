@@ -1,0 +1,47 @@
+name: False positive
+description: Dross reported something that is not a defect
+labels: ["false positive"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        These are the most useful reports this project gets. Precision is
+        measured, five signals ship disabled because they measured badly, and
+        every fix so far came from reading real findings against real source.
+
+        If the code is public, a link is worth more than a description.
+  - type: input
+    id: signal
+    attributes:
+      label: Signal
+      description: The bracketed name in the output, e.g. `swallowed-exception/log-only-catch`.
+      placeholder: check/signal
+    validations:
+      required: true
+  - type: textarea
+    id: code
+    attributes:
+      label: The code it flagged
+      description: >
+        Enough to reproduce the shape. Reduced is fine, as long as it still
+        triggers the finding.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it is not a defect
+      description: >
+        What the code is actually doing, and what a reviewer would say about
+        it. This is the part that decides whether the signal can be fixed or
+        only narrowed.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `dross --version`.
+    validations:
+      required: true
