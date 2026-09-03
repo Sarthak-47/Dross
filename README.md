@@ -8,6 +8,11 @@ It catches what agent-generated diffs specifically get wrong — duplicated logi
 
 > Status: pre-release. The engine, CLI, adapters, desktop app, and benchmark harness are implemented and tested, and precision has been measured across 22 open-source repositories — see [Benchmarks](#benchmarks) for the numbers and their limits.
 
+![The findings view: a swallowed exception in socket.io, beside the source it refers to](docs/images/findings.png)
+
+<sub>A real run: socket.io at `0ae76360f`, 27 findings. Every screenshot here is
+the app rendering actual engine output, not a mockup.</sub>
+
 ---
 
 ## Why this exists
@@ -122,6 +127,31 @@ marketing.
 Checks that could not run appear inline with their reason, heuristic authorship
 is labelled heuristic, and the status bar states `no network calls · 0 bytes
 sent`. The fonts are self-hosted so that claim stays true.
+
+![Settings: every signal's measured precision beside its toggle](docs/images/settings.png)
+
+Settings is where the measurement lives. Each signal shows what it scored on the
+benchmark corpus, which rounds produced that number, and — for the five that
+ship disabled — why. Expanding a row gives the reasoning in full.
+
+![Connections: each integration states its own limitations](docs/images/connections.png)
+
+Every integration prints its own caveats on its card. The git hook's card says
+that a desktop app committing through its own UI button bypasses `.git/hooks`
+entirely, because that is true and burying it in documentation would not make it
+less true.
+
+![Risk history: findings per analysis, from the local log](docs/images/history.png)
+
+The trend comes from `.dross/index.sqlite` in the repository being analysed.
+Nothing is uploaded; there is nowhere for it to go.
+
+The screenshots above are produced by `apps/desktop/uiharness.html`, a
+development page that stubs the Tauri IPC bridge so the real UI renders a real
+analysis in a browser. It is not part of any build — Vite's only entry is
+`index.html` — and the findings it renders are genuine engine output rather
+than fixtures. It exists because every visual check before it was of an empty
+state, and the first run of it found six bugs.
 
 ```bash
 npm install --prefix apps/desktop
