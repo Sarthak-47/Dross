@@ -103,9 +103,12 @@ never be measured again, which is exactly when a re-measurement is wanted. Same
 
 | Signal | Findings before | After | Change |
 |---|---:|---:|---|
-| near-duplicate-function | 485 | **111** | −77% |
-| single-implementation-abstraction | 9 | **5** | −44% |
-| complexity-to-problem-size-outlier | 19 | 21 | +2 |
+| near-duplicate-function | 485 | **111** | −78% |
+| silent-optimistic-return | 25 | **6** | −76% |
+| single-implementation-abstraction | 9 | **5** | −45% |
+| log-only-catch | 11 | **9** | −19% |
+| overkill-design-pattern | 27 | 30 | **+11%** |
+| complexity-to-problem-size-outlier | 19 | 22 | not comparable |
 
 **This is finding volume, not precision.** No labelling pass has been run over
 the new output, so none of these is re-enabled. A 77% drop in a signal that was
@@ -137,6 +140,37 @@ findings are date-fns: `differenceInMinutes` against `differenceInSeconds`,
 `startOfDecade` against `endOfDecade`. Sibling APIs in a single-subject library
 share real vocabulary, because they are genuinely about the same things.
 Vocabulary cannot separate those, and nothing in this round claims to.
+
+### The one that did not work
+
+`overkill-design-pattern` went **up**, 27 findings to 30, across three attempts.
+Each attempt made the per-branch definition more defensible — a conditional that
+assigns a field is not dispatch, a nested closure's branches are not the
+factory's, a guard clause returning its own argument is not a variant, and an
+unguarded `return new X()` is a variant that was not being counted. All four are
+right. The volume still rose.
+
+The reason is the trigger: the signal fires on *exactly* one variant, so any
+change to how variants are counted moves functions into the bucket as readily as
+out of it. The first attempt removed 22 findings and introduced 32.
+
+The premise is what does not survive. "A factory-shaped function with one branch
+is premature abstraction" is not separable from ordinary code by shape, because
+ordinary constructors have branches too. Recorded here rather than tuned further:
+three attempts in one sitting is enough to call it.
+
+### A measurement that is not comparable
+
+`complexity-to-problem-size-outlier` reads 19 → 22, and that comparison should
+not be trusted in either direction. The baseline table had no uniqueness on the
+commit, so every `dross index` re-inserted the whole replayed history — one
+corpus repository held 126 rows for 18 commits. The "before" column was measured
+against those inflated baselines and the "after" against clean ones, so the two
+numbers describe different distributions.
+
+The duplication mattered beyond this table: `sample_count` is what gates the
+signal to thirty samples, so the gate could be passed by indexing a small
+repository repeatedly. That is fixed; the measurement will be redone.
 
 ## Recall
 
