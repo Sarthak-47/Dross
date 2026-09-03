@@ -170,10 +170,23 @@ fn evaluate(file: &ParsedFile, handler: &CatchHandler<'_>, path: &std::path::Pat
     // applies to a comment, and these were the bulk of what remained.
     let states_intent = stats.log_text.as_deref().is_some_and(declares_expected);
 
+    // A comment explaining the decision counts wherever the author put it. The
+    // empty-catch signal already honours one inside the handler; socket.io
+    // puts it above the `try` instead —
+    //
+    //     // Sometimes the websocket has already been closed but the browser
+    //     // didn't have a chance of informing us about it yet, in that case
+    //     // send will throw an error
+    //     try { this.doWrite(packet, data); } catch (e) { debug(...); }
+    //
+    // which is the same decision, recorded in the more natural place.
+    let documented = stats.is_documented || try_is_documented(file, handler.node);
+
     if stats.has_logging
         && !stats.surfaces_error()
         && !narrow_with_explicit_return
         && !states_intent
+        && !documented
     {
         findings.push(Finding::new(
             CheckId::SwallowedException,
@@ -351,6 +364,29 @@ fn enclosing_function_node<'a>(file: &ParsedFile, node: Node<'a>) -> Option<Node
         current = n.parent();
     }
     None
+}
+
+/// Whether a comment immediately precedes the `try` this handler belongs to.
+///
+/// Only the statement directly above counts. A comment further up is about
+/// something else, and treating any nearby comment as documentation would
+/// silence the signal wherever code is commented at all.
+fn try_is_documented(file: &ParsedFile, handler: Node<'_>) -> bool {
+    let Some(try_node) = handler.parent() else {
+        return false;
+    };
+    let Some(previous) = try_node.prev_named_sibling() else {
+        return false;
+    };
+    if previous.kind() != "comment" {
+        return false;
+    }
+    // Adjacent, not merely earlier: at most one blank line between them.
+    let gap = try_node
+        .start_position()
+        .row
+        .saturating_sub(previous.end_position().row);
+    gap <= 1 && !file.text(previous).trim().is_empty()
 }
 
 fn body_stats(file: &ParsedFile, body: Option<Node<'_>>) -> BodyStats {
@@ -983,5 +1019,66 @@ except Exception as e:
         for name in ["render", "safety_check", "retry", "maybe", "parse"] {
             assert!(!name_declares_a_safe_result(name), "{name}");
         }
+    }
+
+    /// socket.io explains this one above the `try` rather than inside the
+    /// handler, which is the more natural place to put it.
+    #[test]
+    fn a_comment_above_the_try_documents_the_handler_too() {
+        let f = run_on(
+            Language::JavaScript,
+            "function send(packet, data) {
+  // Sometimes the websocket has already been closed but the browser
+  // didn't have a chance of informing us yet, in which case send throws.
+  try {
+    this.doWrite(packet, data);
+  } catch (e) {
+    debug('write failed');
+  }
+}",
+        );
+        assert!(
+            !signals(&f).contains(&"log-only-catch"),
+            "{:?}",
+            signals(&f)
+        );
+    }
+
+    /// Without the comment the same code is still reported — the guard must
+    /// not silence the signal wherever a file happens to contain comments.
+    #[test]
+    fn an_undocumented_try_is_still_reported() {
+        let f = run_on(
+            Language::JavaScript,
+            "function send(packet, data) {
+  try {
+    this.doWrite(packet, data);
+  } catch (e) {
+    debug('write failed');
+  }
+}",
+        );
+        assert!(signals(&f).contains(&"log-only-catch"), "{:?}", signals(&f));
+    }
+
+    /// A comment about something further up the function is not about this
+    /// handler.
+    #[test]
+    fn a_distant_comment_does_not_document_the_handler() {
+        let f = run_on(
+            Language::JavaScript,
+            "function send(packet, data) {
+  // Prepare the frame before writing.
+  const frame = encode(packet);
+  const size = frame.length;
+
+  try {
+    this.doWrite(frame, data);
+  } catch (e) {
+    debug('write failed');
+  }
+}",
+        );
+        assert!(signals(&f).contains(&"log-only-catch"), "{:?}", signals(&f));
     }
 }
