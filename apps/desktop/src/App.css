@@ -389,8 +389,14 @@ button {
 .split__left {
   /* Shrinkable below its preferred 620px. It was `flex: none`, so at the
      window's 900px minimum the source pane got 280px, its header needed 335px,
-     and "Open in editor" sat 55px past the right edge of the window. */
+     and "Open in editor" sat 55px past the right edge of the window.
+
+     Capped at a share as well as a width: 620px of a 920px window leaves the
+     source pane 300px, which truncates the path and puts a scrollbar under
+     every line. Neither pane is the secondary one, so below ~1130px they
+     divide the space instead of one taking a fixed cut of it. */
   flex: 0 1 620px;
+  max-width: 55%;
   min-width: 360px;
   display: flex;
   flex-direction: column;
