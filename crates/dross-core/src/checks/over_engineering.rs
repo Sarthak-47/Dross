@@ -439,7 +439,7 @@ fn dispatch_branch_count(file: &ParsedFile, func: Node<'_>) -> usize {
         // `build_response` assigns `response.url` inside an `if isinstance`,
         // which decides a field, not a variant — and it was reported as a
         // one-variant registry for having exactly one `if` anywhere in it.
-        "if_statement" | "elif_clause" if returns_within_function(file, n) => cases += 1,
+        "if_statement" | "elif_clause" if returns_a_construction(file, n) => cases += 1,
         "pair" => object_entries += 1,
         _ => {}
     });
@@ -468,13 +468,27 @@ fn walk_within_function<'a>(file: &ParsedFile, root: Node<'a>, visit: &mut dyn F
     }
 }
 
-/// Whether a `return` appears in this subtree without crossing into a nested
-/// function.
-fn returns_within_function(file: &ParsedFile, node: Node<'_>) -> bool {
+/// Whether this subtree returns something *constructed*, without crossing into
+/// a nested function.
+///
+/// A dispatch branch produces a variant: `new WebSocketTransport()`, or a call
+/// that builds one. A guard clause returns the trivial case — axios' `buildURL`
+/// opens with `if (!params) return url;`, handing back its own argument, and
+/// counting that made an ordinary function look like a one-branch registry.
+fn returns_a_construction(file: &ParsedFile, node: Node<'_>) -> bool {
     let mut found = false;
     walk_within_function(file, node, &mut |n| {
-        if n.kind() == "return_statement" {
-            found = true;
+        if found || n.kind() != "return_statement" {
+            return;
+        }
+        let mut cursor = n.walk();
+        for child in n.named_children(&mut cursor) {
+            if matches!(
+                child.kind(),
+                "new_expression" | "call_expression" | "call" | "object" | "dictionary"
+            ) {
+                found = true;
+            }
         }
     });
     found
@@ -967,6 +981,20 @@ mod tests {
             count(field_choice, Language::Python),
             0,
             "an if that assigns a field is not a dispatch branch"
+        );
+
+        // axios' buildURL: a guard clause handing back its own argument.
+        let guard_clause = "function buildURL(url, params) {
+  if (!params) {
+    return url;
+  }
+  return url + serialize(params);
+}
+";
+        assert_eq!(
+            count(guard_clause, Language::JavaScript),
+            0,
+            "a guard clause returning its own argument is not a variant"
         );
 
         // chalk's createBuilder: the branches belong to the closure it
