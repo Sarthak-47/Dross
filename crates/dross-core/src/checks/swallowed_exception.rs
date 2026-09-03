@@ -479,6 +479,21 @@ fn surfaces_error_via_call(text: &str) -> bool {
     if text.trim_start().starts_with("warnings.warn") {
         return true;
     }
+
+    // A call that records the traceback is not a log line either. `logging
+    // .exception(...)`, and any logging call passing `exc_info`, preserve what
+    // was raised and where it came from, which is the difference between
+    // reporting a failure and mentioning it.
+    //
+    // This is ruff's position in BLE001, which exempts handlers that re-raise
+    // or log with exc_info. Comparing Dross against it on the corpus, these
+    // were every one of the nine handlers the two tools disagreed about —
+    // scrapy's `logger.error(..., exc_info=True)` and `logger.exception(...)`
+    // among them. Agreeing with the more widely used rule is the right call.
+    let call_head = text.split('(').next().unwrap_or(text);
+    if call_head.trim_end().ends_with(".exception") || text.contains("exc_info") {
+        return true;
+    }
     if looks_like_logging(text) {
         return false;
     }
@@ -1080,5 +1095,59 @@ except Exception as e:
 }",
         );
         assert!(signals(&f).contains(&"log-only-catch"), "{:?}", signals(&f));
+    }
+
+    /// Found by comparing Dross against ruff's BLE001 on the corpus: those two
+    /// tools disagreed about exactly nine handlers, and every one of them
+    /// recorded the traceback rather than a message.
+    #[test]
+    fn logging_the_traceback_surfaces_the_error() {
+        // scrapy: logger.error(..., exc_info=True)
+        let with_exc_info = run_on(
+            Language::Python,
+            "def close(self):
+    try:
+        self.slot.close()
+    except Exception:
+        logger.error('Slot close failure', exc_info=True)
+",
+        );
+        assert!(
+            !signals(&with_exc_info).contains(&"overly-broad-catch-type"),
+            "{:?}",
+            signals(&with_exc_info)
+        );
+
+        // scrapy: logger.exception(...)
+        let logger_exception = run_on(
+            Language::Python,
+            "def run(self):
+    try:
+        self.step()
+    except Exception:
+        logger.exception('step failed')
+",
+        );
+        assert!(
+            !signals(&logger_exception).contains(&"overly-broad-catch-type"),
+            "{:?}",
+            signals(&logger_exception)
+        );
+
+        // A plain message, with no traceback, is still a swallow.
+        let message_only = run_on(
+            Language::Python,
+            "def run(self):
+    try:
+        self.step()
+    except Exception:
+        logger.error('step failed')
+",
+        );
+        assert!(
+            signals(&message_only).contains(&"overly-broad-catch-type"),
+            "{:?}",
+            signals(&message_only)
+        );
     }
 }
