@@ -444,11 +444,53 @@ fn dispatch_branch_count(file: &ParsedFile, func: Node<'_>) -> usize {
         _ => {}
     });
 
+    // The fallthrough counts too. `if (kind === 'ws') return new WsTransport();
+    // return new PollingTransport();` offers two variants, but only one of them
+    // sits in a conditional — so counting conditionals alone called it a
+    // one-variant registry, which is the opposite of what it is.
+    if cases > 0 && returns_a_construction_outside_conditionals(file, func) {
+        cases += 1;
+    }
+
     // A factory that unconditionally constructs one object is normal code, not
     // overkill scaffolding. Only real dispatch counts, so `create_app` and
     // similar application factories no longer register as one-variant
     // registries — every such finding in the benchmark was a false positive.
     cases.max(object_entries)
+}
+
+/// Whether the function returns a construction from its own body rather than
+/// from inside a conditional — the unguarded final `return`.
+fn returns_a_construction_outside_conditionals(file: &ParsedFile, func: Node<'_>) -> bool {
+    let mut found = false;
+    walk_within_function(file, func, &mut |n| {
+        if found || n.kind() != "return_statement" {
+            return;
+        }
+        let mut parent = n.parent();
+        while let Some(p) = parent {
+            if matches!(
+                p.kind(),
+                "if_statement" | "elif_clause" | "else_clause" | "switch_case" | "case_statement"
+            ) {
+                return;
+            }
+            if crate::ast::is_function_node(file.language, p.kind()) {
+                break;
+            }
+            parent = p.parent();
+        }
+        let mut cursor = n.walk();
+        for child in n.named_children(&mut cursor) {
+            if matches!(
+                child.kind(),
+                "new_expression" | "call_expression" | "call" | "object" | "dictionary"
+            ) {
+                found = true;
+            }
+        }
+    });
+    found
 }
 
 /// Walks a function's own body, stopping at any nested function.
@@ -1028,6 +1070,21 @@ mod tests {
             count(real_dispatch, Language::JavaScript),
             1,
             "a conditional that selects and returns a variant is dispatch"
+        );
+
+        // Two variants, only one of them inside a conditional. Counting
+        // conditionals alone called this a one-variant registry.
+        let two_variants = "function createTransport(kind) {
+  if (kind === 'websocket') {
+    return new WebSocketTransport();
+  }
+  return new PollingTransport();
+}
+";
+        assert_eq!(
+            count(two_variants, Language::JavaScript),
+            2,
+            "the unguarded return is a variant too"
         );
     }
 }
