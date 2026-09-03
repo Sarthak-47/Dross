@@ -10,9 +10,15 @@ This removes the judgement instead. Two of Dross's signals have close
 equivalents in linters maintained by large communities and used on millions of
 lines:
 
-    empty-catch-body        <->  ruff S110       (try-except-pass)      Python
-    overly-broad-catch-type <->  ruff BLE001     (blind-except)         Python
-    empty-catch-body        <->  oxlint no-empty (ESLint's rule)        JS/TS
+    empty-catch-body        <->  ruff S110            (try-except-pass)   Python
+    overly-broad-catch-type <->  ruff BLE001 or E722  (blind / bare)      Python
+    empty-catch-body        <->  oxlint no-empty      (ESLint's rule)     JS/TS
+
+Two rules for breadth, because ruff splits the question: BLE001 covers
+`except Exception`, E722 covers a bare `except:`. Mapping only the first
+counted httpx's bare handlers as disagreements when both tools in fact agreed —
+a fault in this file, not in Dross, and the reason a comparison needs checking
+as carefully as the thing it compares.
 
 Where Dross and ruff both fire on the same handler, the finding is corroborated
 by a tool with no stake in this repository. That is not a precision measurement
@@ -39,14 +45,15 @@ import tempfile
 REPOS = pathlib.Path(__file__).parent / "repos"
 RUFF = pathlib.Path(__file__).parent.parent / ".venv" / "Scripts" / "python.exe"
 
-# Dross signal -> the ruff rule that asks the same question.
+# Dross signal -> the ruff rules that ask the same question. Corroborated if
+# any of them fires on the handler.
 PYTHON_EQUIVALENT = {
-    "empty-catch-body": "S110",
-    "overly-broad-catch-type": "BLE001",
+    "empty-catch-body": ("S110",),
+    "overly-broad-catch-type": ("BLE001", "E722"),
 }
 
 # JavaScript has no typed catch, so only the empty-body question transfers.
-JS_EQUIVALENT = {"empty-catch-body": "no-empty"}
+JS_EQUIVALENT = {"empty-catch-body": ("no-empty",)}
 
 JS_SUFFIXES = (".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx")
 OXLINT = pathlib.Path(__file__).parent.parent / "apps" / "desktop" / "node_modules" / ".bin"
@@ -64,8 +71,8 @@ def file_at(repo: str, commit: str, path: str) -> str | None:
     return out.stdout.decode("utf-8", "replace")
 
 
-def ruff_lines(source: str, rule: str) -> set[int]:
-    """Lines where ruff raises `rule`, for one file's contents."""
+def ruff_lines(source: str, rules: tuple[str, ...]) -> set[int]:
+    """Lines where ruff raises any of `rules`, for one file's contents."""
     with tempfile.TemporaryDirectory() as tmp:
         target = pathlib.Path(tmp) / "subject.py"
         target.write_text(source, encoding="utf-8")
@@ -76,7 +83,7 @@ def ruff_lines(source: str, rule: str) -> set[int]:
                 # cannot switch the rule off and turn a disagreement into a
                 # silent pass.
                 "--isolated",
-                "--select", rule,
+                "--select", ",".join(rules),
                 "--output-format", "json",
                 str(target),
             ],
@@ -140,9 +147,9 @@ def main() -> None:
 
     for f in subjects:
         python = f["file"].endswith(".py")
-        rule = PYTHON_EQUIVALENT[f["signal"]] if python else JS_EQUIVALENT[f["signal"]]
+        rules = PYTHON_EQUIVALENT[f["signal"]] if python else JS_EQUIVALENT[f["signal"]]
         tool = "ruff" if python else "oxlint"
-        key = (f["repo"], f["commit"], f["file"] + rule)
+        key = (f["repo"], f["commit"], f["file"] + "/".join(rules))
         if key not in cache:
             source = file_at(f["repo"], f["commit"], f["file"])
             if source is None:
@@ -150,11 +157,11 @@ def main() -> None:
                 continue
             suffix = pathlib.Path(f["file"]).suffix
             cache[key] = (
-                ruff_lines(source, rule) if python else oxlint_lines(source, suffix)
+                ruff_lines(source, rules) if python else oxlint_lines(source, suffix)
             )
         lines = cache[key]
 
-        label = f"{f['signal']} ({tool} {rule})"
+        label = f"{f['signal']} ({tool} {' or '.join(rules)})"
         total[label] += 1
         # Dross reports the handler's own span; ruff reports the `except` line.
         # Accept a hit anywhere in the handler.

@@ -77,7 +77,7 @@ export const SIGNALS: SignalRow[] = [
     def: "on",
     rounds: ["r2 8%", "r3 45%", "r4 92%"],
     reason:
-      "An empty handler carrying a comment is a decision somebody wrote down, and a narrow except ValueError names the one thing the author expected. Both are excluded now; what remains is a broad or untyped handler discarding a failure without saying so.",
+      "An empty handler carrying a comment is a decision somebody wrote down, and a narrow except ValueError names the one thing the author expected. Both are excluded now; what remains is a broad or untyped handler discarding a failure without saying so. Independently corroborated: all 119 of these findings on the benchmark corpus were also flagged by oxlint's no-empty or ruff's S110.",
   },
   {
     name: "parameter-type-removed",
@@ -104,7 +104,7 @@ export const SIGNALS: SignalRow[] = [
     def: "on",
     rounds: ["r2 0%", "r3 100%", "r4 75%"],
     reason:
-      "Breadth alone is a style opinion. Every finding in the first round was a top-level request handler that must catch everything and then delegates. It is reported now only when the broad catch also fails to surface what it caught.",
+      "Breadth alone is a style opinion. Every finding in the first round was a top-level request handler that must catch everything and then delegates. It is reported now only when the broad catch also fails to surface what it caught — and, following ruff, logging the traceback counts as surfacing. All 30 of these findings on the corpus were also flagged by ruff's BLE001 or E722.",
   },
   {
     name: "pass-through-wrapper",

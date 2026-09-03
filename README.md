@@ -194,11 +194,24 @@ run: a label pass over emitted findings contains no false negatives by
 construction. Every seeded positive is caught and no seeded negative flagged,
 verified in CI with all signals enabled.
 
-**Two limits worth knowing before you trust these.** The labeling was a single
-pass by the same family of system this tool is built to check — a real conflict
-of interest, which is why the harness computes Cohen's kappa against a second
-label set. And only 81 findings came from commits carrying an agent trailer, so
-this measures Dross on ordinary repositories rather than on the
+**Two of the signals are corroborated independently.** For the two that have
+close equivalents in mature linters, the judgement is taken out of it entirely:
+every one of 149 findings that ruff or oxlint has a rule for, they also flagged.
+
+| Dross signal | Independent rule | Agreement |
+|---|---|---:|
+| empty-catch-body (JS/TS) | oxlint `no-empty` | 113/113 |
+| empty-catch-body (Python) | ruff `S110` | 6/6 |
+| overly-broad-catch-type | ruff `BLE001` / `E722` | 30/30 |
+
+Agreement is not truth, and it covers only two of fourteen signals — but it is
+evidence that does not come from the labeller.
+
+**Two limits worth knowing before you trust the rest.** The labeling was a
+single pass by the same family of system this tool is built to check — a real
+conflict of interest, which is why the harness computes Cohen's kappa against a
+second label set. And only 81 findings came from commits carrying an agent
+trailer, so this measures Dross on ordinary repositories rather than on the
 agent-generated diffs it targets.
 
 Reproduce it:

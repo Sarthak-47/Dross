@@ -200,6 +200,63 @@ check reported it. The tool does see the file type the UI is written in. Rust
 sources are invisible to it, since the launch grammars are JavaScript,
 TypeScript and Python.
 
+## Corroboration that does not come from the labeller
+
+The precision figures above were produced by a single labeller — Claude Opus 5,
+the same family of system Dross is built to check. That is a conflict of
+interest, and no further labelling by the same party removes it.
+
+Two of Dross's signals have close equivalents in linters maintained by large
+communities, so for those the judgement can be taken out entirely:
+
+| Dross signal | Independent rule | Agreed | Of | Rate |
+|---|---|---:|---:|---:|
+| empty-catch-body (JS/TS) | oxlint `no-empty` (ESLint's rule) | 113 | 113 | 100% |
+| empty-catch-body (Python) | ruff `S110` try-except-pass | 6 | 6 | 100% |
+| overly-broad-catch-type | ruff `BLE001` or `E722` | 30 | 30 | 100% |
+| **all** | | **149** | **149** | **100%** |
+
+Same 22 repositories, 300 commits each. Reproduce with:
+
+```bash
+python -m venv .venv && .venv/bin/pip install -r .bench/requirements.txt
+cargo run -p dross-bench -- run --repo-dir .bench/repos --commits 300 --out findings.jsonl
+python .bench/crossvalidate.py findings.jsonl
+```
+
+**What this is.** Every finding Dross made that these tools also have a rule for,
+they also made. The rules were implemented independently, by people with no
+stake in this repository.
+
+**What it is not.** Agreement is not truth — two tools can share a blind spot,
+and a rule that fires on the same line is not necessarily asking the same
+question. It says nothing about the other twelve signals, which have no
+equivalent to compare against, and nothing about recall: it measures what Dross
+found, not what it missed.
+
+It also changed the code. Comparing against `BLE001` surfaced nine handlers the
+two tools disagreed about, all of them logging the traceback via
+`logger.exception(...)` or `exc_info=True`. ruff exempts those, on the grounds
+that recording a traceback propagates the failure rather than hiding it. That is
+the more widely used judgement and Dross now shares it, which is the point of
+comparing against something other than yourself.
+
+The harness was checked against deliberately wrong mappings before its output
+was believed — `log-only-catch` against `no-empty` scores 0 of 8 — because a
+comparison that always agrees is not a comparison. An earlier version of it
+scored 94% and was wrong to: it mapped breadth to `BLE001` alone, and counted
+httpx's bare `except:` handlers as disagreements when ruff covers those under
+`E722` instead. The fault was in the comparison, not the tool being compared.
+
+### Why not the usual automated oracle
+
+The standard substitute for human labelling is the closed-warning heuristic:
+call a warning real if a later revision no longer raises it. It was considered
+and rejected. Kang, Aw and Lo ([ICSE 2022](https://arxiv.org/abs/2202.05982))
+hand-checked 1,357 such labels and found only 49% agreement with human
+annotators, with a further 38% removed incidentally by unrelated edits. It would
+have replaced one unreliable oracle with another.
+
 ## How the labeling was done, and where it is weak
 
 A single labeler — Claude Opus 5 — reading the source at each finding's
