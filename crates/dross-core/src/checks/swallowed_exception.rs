@@ -187,8 +187,20 @@ fn evaluate(file: &ParsedFile, handler: &CatchHandler<'_>, path: &std::path::Pat
     }
 
     // Signal 4: silent optimistic return.
+    //
+    // Returning a default on failure is the documented contract far more often
+    // than it is a concealment, and two shapes say so outright.
+    let declared_safe = enclosing_function_name(file, handler.node)
+        .is_some_and(|name| name_declares_a_safe_result(&name));
+    let matches_contract = stats
+        .returns_literal
+        .as_ref()
+        .is_some_and(|literal| returns_same_outside(file, handler, literal));
+
     if let Some(literal) = stats.returns_literal.as_ref()
         && !stats.surfaces_error()
+        && !declared_safe
+        && !matches_contract
     {
         findings.push(Finding::new(
             CheckId::SwallowedException,
@@ -259,6 +271,86 @@ impl BodyStats {
     fn surfaces_error(&self) -> bool {
         self.has_throw || self.has_error_return
     }
+}
+
+/// The name of the function a handler sits in, if it has one.
+fn enclosing_function_name(file: &ParsedFile, node: Node<'_>) -> Option<String> {
+    let mut current = node.parent();
+    while let Some(n) = current {
+        if crate::ast::is_function_node(file.language, n.kind())
+            && let Some(name) = n.child_by_field_name("name")
+        {
+            return Some(file.text(name).trim().to_string());
+        }
+        current = n.parent();
+    }
+    None
+}
+
+/// Whether a function's name states that a default result is its contract.
+///
+/// axios wraps `String(value)` in `stringifySafely` and returns `''` when it
+/// throws. The name is the documentation, and it is the same reasoning the
+/// empty-catch signal applies to a comment.
+fn name_declares_a_safe_result(name: &str) -> bool {
+    let lower = name.trim_start_matches('_').to_ascii_lowercase();
+    lower.ends_with("safely")
+        || lower.ends_with("_safe")
+        || lower.ends_with("ornone")
+        || lower.ends_with("_or_none")
+        || lower.ends_with("ordefault")
+        || lower.ends_with("_or_default")
+        || lower.starts_with("safe_")
+        || lower.starts_with("try_")
+        // A following character is required, so a function simply named
+        // `maybe` does not qualify — the prefix has to be qualifying something.
+        || (lower.starts_with("maybe") && lower.len() > "maybe".len())
+}
+
+/// Whether the enclosing function already returns this same value somewhere
+/// outside the handler.
+///
+/// pytest's `_read_pyc` returns `None` on five separate validation failures
+/// before the `except` that also returns `None`. Returning it once more from a
+/// handler is that function's established contract, not a concealed failure —
+/// every caller already has to handle it.
+fn returns_same_outside(file: &ParsedFile, handler: &CatchHandler<'_>, literal: &str) -> bool {
+    let Some(func) = enclosing_function_node(file, handler.node) else {
+        return false;
+    };
+    let (h_start, h_end) = (handler.node.start_byte(), handler.node.end_byte());
+    let mut found = false;
+    crate::ast::walk(func, |n| {
+        if found || n.kind() != "return_statement" {
+            return;
+        }
+        // Skip returns inside the handler itself.
+        if n.start_byte() >= h_start && n.end_byte() <= h_end {
+            return;
+        }
+        let text = file.text(n);
+        let value = text
+            .trim()
+            .trim_start_matches("return")
+            .trim()
+            .trim_end_matches(';')
+            .trim();
+        if value == literal || (value.is_empty() && literal == "undefined") {
+            found = true;
+        }
+    });
+    found
+}
+
+fn enclosing_function_node<'a>(file: &ParsedFile, node: Node<'a>) -> Option<Node<'a>> {
+    let mut current = node.parent();
+    while let Some(n) = current {
+        if crate::ast::is_function_node(file.language, n.kind()) {
+            return Some(n);
+        }
+        current = n.parent();
+    }
+    None
 }
 
 fn body_stats(file: &ParsedFile, body: Option<Node<'_>>) -> BodyStats {
@@ -792,5 +884,104 @@ except Exception as e:
             "{:?}",
             signals(&f)
         );
+    }
+
+    /// axios wraps `String(value)` and returns `''` when it throws. The name
+    /// is the documentation.
+    #[test]
+    fn a_name_that_promises_a_safe_result_is_not_concealing_one() {
+        let f = run_on(
+            Language::JavaScript,
+            "function stringifySafely(value) {
+  try {
+    return String(value);
+  } catch (err) {
+    return '';
+  }
+}",
+        );
+        assert!(
+            !signals(&f).contains(&"silent-optimistic-return"),
+            "{:?}",
+            signals(&f)
+        );
+
+        // The same body under a name that promises nothing still reports.
+        let g = run_on(
+            Language::JavaScript,
+            "function render(value) {
+  try {
+    return String(value);
+  } catch (err) {
+    return '';
+  }
+}",
+        );
+        assert!(
+            signals(&g).contains(&"silent-optimistic-return"),
+            "{:?}",
+            signals(&g)
+        );
+    }
+
+    /// pytest's `_read_pyc` returns None on five validation failures before the
+    /// `except` that also returns None. Every caller already handles it.
+    #[test]
+    fn returning_what_the_function_already_returns_is_its_contract() {
+        let f = run_on(
+            Language::Python,
+            "def _read_pyc(source, pyc):
+    if not pyc.exists():
+        return None
+    if bad_magic(pyc):
+        return None
+    try:
+        return marshal.load(pyc)
+    except Exception:
+        return None
+",
+        );
+        assert!(
+            !signals(&f).contains(&"silent-optimistic-return"),
+            "{:?}",
+            signals(&f)
+        );
+    }
+
+    /// The guard must not swallow the signal: a handler returning a default
+    /// the function never otherwise returns is still reported.
+    #[test]
+    fn a_default_the_function_never_otherwise_returns_is_still_reported() {
+        let f = run_on(
+            Language::Python,
+            "def load_config(path):
+    data = read(path)
+    try:
+        return parse(data)
+    except Exception:
+        return None
+",
+        );
+        assert!(
+            signals(&f).contains(&"silent-optimistic-return"),
+            "{:?}",
+            signals(&f)
+        );
+    }
+
+    #[test]
+    fn safe_result_names_are_matched_on_shape_not_substring() {
+        for name in [
+            "stringifySafely",
+            "safe_join",
+            "try_parse",
+            "get_or_none",
+            "maybeParse",
+        ] {
+            assert!(name_declares_a_safe_result(name), "{name}");
+        }
+        for name in ["render", "safety_check", "retry", "maybe", "parse"] {
+            assert!(!name_declares_a_safe_result(name), "{name}");
+        }
     }
 }
