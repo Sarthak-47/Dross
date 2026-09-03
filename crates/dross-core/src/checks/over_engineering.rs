@@ -432,18 +432,56 @@ fn split_camel(part: &str) -> Vec<&str> {
 fn dispatch_branch_count(file: &ParsedFile, func: Node<'_>) -> usize {
     let mut cases = 0;
     let mut object_entries = 0;
-    walk(func, |n| match n.kind() {
+
+    walk_within_function(file, func, &mut |n: Node<'_>| match n.kind() {
         "switch_case" | "case_statement" => cases += 1,
-        "if_statement" | "elif_clause" => cases += 1,
+        // Only a conditional that produces the result is dispatch. requests'
+        // `build_response` assigns `response.url` inside an `if isinstance`,
+        // which decides a field, not a variant — and it was reported as a
+        // one-variant registry for having exactly one `if` anywhere in it.
+        "if_statement" | "elif_clause" => {
+            if returns_within_function(file, n) {
+                cases += 1;
+            }
+        }
         "pair" => object_entries += 1,
         _ => {}
     });
+
     // A factory that unconditionally constructs one object is normal code, not
     // overkill scaffolding. Only real dispatch counts, so `create_app` and
     // similar application factories no longer register as one-variant
     // registries — every such finding in the benchmark was a false positive.
-    let _ = file;
     cases.max(object_entries)
+}
+
+/// Walks a function's own body, stopping at any nested function.
+///
+/// A factory that returns a closure has the closure's branches inside it, and
+/// they belong to the closure. chalk's `createBuilder` returns a builder whose
+/// hot path is `if (arguments_.length === 1)`; counting that made the factory
+/// itself look like a one-branch dispatcher.
+fn walk_within_function<'a>(file: &ParsedFile, root: Node<'a>, visit: &mut dyn FnMut(Node<'a>)) {
+    let mut cursor = root.walk();
+    for child in root.children(&mut cursor) {
+        if crate::ast::is_function_node(file.language, child.kind()) {
+            continue;
+        }
+        visit(child);
+        walk_within_function(file, child, visit);
+    }
+}
+
+/// Whether a `return` appears in this subtree without crossing into a nested
+/// function.
+fn returns_within_function(file: &ParsedFile, node: Node<'_>) -> bool {
+    let mut found = false;
+    walk_within_function(file, node, &mut |n| {
+        if n.kind() == "return_statement" {
+            found = true;
+        }
+    });
+    found
 }
 
 // --- Signal: unused generality -------------------------------------------
@@ -900,5 +938,72 @@ mod tests {
                 "{name} does not declare itself a base"
             );
         }
+    }
+
+    /// Both shapes that made this signal score zero on the corpus, taken from
+    /// the code that produced them.
+    #[test]
+    fn a_factory_is_not_a_one_variant_registry_for_having_one_if() {
+        use crate::lang::Language;
+
+        let count = |src: &str, lang| {
+            let parsed = ParsedFile::parse(lang, src).unwrap();
+            let func = parsed.functions().into_iter().next().unwrap();
+            let node = parsed
+                .root()
+                .descendant_for_byte_range(func.start_byte, func.end_byte)
+                .unwrap();
+            dispatch_branch_count(&parsed, node)
+        };
+
+        // requests' build_response: a conditional that decides a field, not a
+        // variant. Nothing is returned from either arm.
+        let field_choice = "def build_response(self, req, resp):
+    response = Response()
+    response.status_code = getattr(resp, 'status', None)
+    if isinstance(req.url, bytes):
+        response.url = req.url.decode('utf-8')
+    else:
+        response.url = req.url
+    return response
+";
+        assert_eq!(
+            count(field_choice, Language::Python),
+            0,
+            "an if that assigns a field is not a dispatch branch"
+        );
+
+        // chalk's createBuilder: the branches belong to the closure it
+        // returns, not to the factory.
+        let returns_closure = "function createBuilder(self, styler) {
+  const builder = (...args) => {
+    if (args.length === 1) {
+      return applyStyle(builder, args[0]);
+    }
+    return applyStyle(builder, args.join(' '));
+  };
+  return builder;
+}
+";
+        assert_eq!(
+            count(returns_closure, Language::JavaScript),
+            0,
+            "a nested closure's branches are not the factory's dispatch"
+        );
+
+        // What the signal is actually for: one registered variant, selected
+        // and returned.
+        let real_dispatch = "function createTransport(kind) {
+  if (kind === 'websocket') {
+    return new WebSocketTransport();
+  }
+  return null;
+}
+";
+        assert_eq!(
+            count(real_dispatch, Language::JavaScript),
+            1,
+            "a conditional that selects and returns a variant is dispatch"
+        );
     }
 }
