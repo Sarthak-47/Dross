@@ -439,11 +439,7 @@ fn dispatch_branch_count(file: &ParsedFile, func: Node<'_>) -> usize {
         // `build_response` assigns `response.url` inside an `if isinstance`,
         // which decides a field, not a variant — and it was reported as a
         // one-variant registry for having exactly one `if` anywhere in it.
-        "if_statement" | "elif_clause" => {
-            if returns_within_function(file, n) {
-                cases += 1;
-            }
-        }
+        "if_statement" | "elif_clause" if returns_within_function(file, n) => cases += 1,
         "pair" => object_entries += 1,
         _ => {}
     });
