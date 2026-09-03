@@ -1174,6 +1174,11 @@ button {
 }
 
 .prec__fill {
+  /* A span is inline, and an inline box ignores width and height — so the bar
+     carried `style="width: 100%"` and rendered nothing at all, for every
+     signal. This column is the measured precision, which is the table's whole
+     point, and it was drawing an empty track beside every number. */
+  display: block;
   height: 100%;
 }
 
