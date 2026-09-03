@@ -23,7 +23,10 @@ use crate::lang::Language;
 /// still having the version 1 layout. Those cannot be repaired by fixing the
 /// migration — their version already matches — so the number is burned and
 /// they are rebuilt at 3.
-const SCHEMA_VERSION: i64 = 3;
+///
+/// 4: complexity_baseline gains a unique commit, because it had none and every
+/// re-index inserted the same history again.
+const SCHEMA_VERSION: i64 = 4;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndexedFunction {
@@ -154,9 +157,12 @@ impl FingerprintIndex {
             );
 
             -- Per-repo complexity baseline (spec 5a).
+            -- One row per commit. Without the constraint every `dross index`
+            -- replayed the same history and inserted it again: 18 commits had
+            -- become 126 rows, and sample_count with them.
             CREATE TABLE IF NOT EXISTS complexity_baseline (
                 id            INTEGER PRIMARY KEY,
-                commit_sha    TEXT NOT NULL,
+                commit_sha    TEXT NOT NULL UNIQUE,
                 lines_changed INTEGER NOT NULL,
                 complexity    INTEGER NOT NULL,
                 ratio         REAL NOT NULL
@@ -399,9 +405,16 @@ impl FingerprintIndex {
         complexity: usize,
     ) -> Result<()> {
         let ratio = complexity as f64 / (lines_changed.max(1)) as f64;
+        // Replaces rather than appends. A commit's complexity does not change,
+        // but re-indexing used to record it again, and the sample count is what
+        // decides whether the signal is allowed to speak at all.
         self.conn.execute(
             "INSERT INTO complexity_baseline(commit_sha, lines_changed, complexity, ratio)
-             VALUES (?1, ?2, ?3, ?4)",
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(commit_sha) DO UPDATE SET
+                 lines_changed = excluded.lines_changed,
+                 complexity    = excluded.complexity,
+                 ratio         = excluded.ratio",
             params![commit_sha, lines_changed as i64, complexity as i64, ratio],
         )?;
         Ok(())
@@ -610,9 +623,13 @@ mod tests {
     #[test]
     fn baseline_reports_stats_once_warm() {
         let index = FingerprintIndex::open_in_memory().unwrap();
+        // Forty distinct commits. This recorded one sha forty times and
+        // asserted forty samples, which described the duplication bug rather
+        // than catching it — the baseline is a distribution over commits, and
+        // one commit is one sample however often it is measured.
         for i in 0..40 {
             index
-                .record_baseline_sample("abc", 10, 20 + (i % 3))
+                .record_baseline_sample(&format!("commit{i}"), 10, 20 + (i % 3))
                 .unwrap();
         }
         let stats = index.baseline_stats().unwrap().unwrap();
@@ -869,5 +886,56 @@ export function two(b) {
         );
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The baseline had no uniqueness on the commit, so every `dross index`
+    /// replayed the same history and recorded it again. One benchmark
+    /// repository held 126 rows for 18 commits.
+    ///
+    /// This is not only untidy. `sample_count` is what decides whether the
+    /// complexity signal is allowed to speak — it stays silent below thirty —
+    /// so a repository with five commits reached the threshold by being
+    /// indexed six times.
+    #[test]
+    fn re_recording_a_commit_does_not_add_a_baseline_sample() {
+        let index = FingerprintIndex::open_in_memory().unwrap();
+
+        for _ in 0..7 {
+            for (i, sha) in ["aaa", "bbb", "ccc"].iter().enumerate() {
+                index.record_baseline_sample(sha, 10 + i, 20 + i).unwrap();
+            }
+        }
+
+        let stats = index.baseline_stats().unwrap();
+        // Below the minimum, so no stats at all — which is the point: three
+        // commits must not look like twenty-one.
+        assert!(
+            stats.is_none(),
+            "three commits recorded seven times each reported a usable baseline"
+        );
+
+        let rows: i64 = index
+            .conn
+            .query_row("SELECT COUNT(*) FROM complexity_baseline", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 3, "one row per commit");
+    }
+
+    /// A commit re-measured after a code change updates in place.
+    #[test]
+    fn re_recording_a_commit_updates_its_measurement() {
+        let index = FingerprintIndex::open_in_memory().unwrap();
+        index.record_baseline_sample("aaa", 10, 20).unwrap();
+        index.record_baseline_sample("aaa", 10, 90).unwrap();
+
+        let ratio: f64 = index
+            .conn
+            .query_row(
+                "SELECT ratio FROM complexity_baseline WHERE commit_sha = 'aaa'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(ratio, 9.0, "the later measurement replaces the earlier one");
     }
 }
