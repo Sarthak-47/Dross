@@ -9,7 +9,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.3"
+version = "0.1.4"
 edition = "2024"
 # `let` chains are used in the check and adapter code; they stabilized in 1.88.
 rust-version = "1.88"
