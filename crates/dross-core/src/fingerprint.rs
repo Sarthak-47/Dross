@@ -62,7 +62,9 @@ pub fn normalized_tokens(file: &ParsedFile, func: &FunctionDef) -> Vec<String> {
             | "property_identifier"
             | "shorthand_property_identifier"
             | "type_identifier"
-            | "field_identifier" => "@id".to_string(),
+            | "field_identifier"
+            // Rust
+            | "primitive_type" => "@id".to_string(),
             "string" | "template_string" | "string_fragment" => "@str".to_string(),
             "number" | "integer" | "float" => "@num".to_string(),
             "true" | "false" | "null" | "none" | "undefined" => "@lit".to_string(),
@@ -127,11 +129,15 @@ pub fn vocabulary(file: &ParsedFile, func: &FunctionDef) -> BTreeSet<String> {
         let keep = match n.kind() {
             // `a.price`, `self.retries`, `obj["k"]` is not included: only names
             // written in the source as members count.
+            // `field_identifier` is also Rust's `self.inner` / `cfg.retries`.
             "property_identifier" | "field_identifier" | "shorthand_property_identifier" => true,
             "identifier" => n.parent().is_some_and(|p| match p.kind() {
                 // The callee of a plain call, `helper(x)`. A JavaScript method
                 // call's name is already caught as a property above.
                 "call_expression" | "call" => true,
+                // Rust: `helper(x)` puts the callee directly under the call,
+                // and a method call's name is a field_identifier caught above.
+                "scoped_identifier" => p.parent().is_some_and(|g| g.kind() == "call_expression"),
                 // Python has no property_identifier: `item.price` is an
                 // `attribute` node whose object and attribute are both plain
                 // identifiers. Only the attribute half is vocabulary — the

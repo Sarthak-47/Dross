@@ -10,17 +10,19 @@ pub enum Language {
     TypeScript,
     Tsx,
     Python,
+    Rust,
 }
 
 impl Language {
     /// Detects a language from a file extension. Returns `None` for anything
-    /// outside the launch-scope grammars (JS/TS + Python, per spec section 6).
+    /// outside the supported grammars.
     pub fn from_path(path: &Path) -> Option<Self> {
         match path.extension()?.to_str()? {
             "js" | "mjs" | "cjs" | "jsx" => Some(Language::JavaScript),
             "ts" | "mts" | "cts" => Some(Language::TypeScript),
             "tsx" => Some(Language::Tsx),
             "py" | "pyi" => Some(Language::Python),
+            "rs" => Some(Language::Rust),
             _ => None,
         }
     }
@@ -31,6 +33,7 @@ impl Language {
             Language::TypeScript => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
             Language::Tsx => tree_sitter_typescript::LANGUAGE_TSX.into(),
             Language::Python => tree_sitter_python::LANGUAGE.into(),
+            Language::Rust => tree_sitter_rust::LANGUAGE.into(),
         }
     }
 
@@ -55,7 +58,24 @@ mod tests {
             Language::from_path(Path::new("foo/bar.py")),
             Some(Language::Python)
         );
-        assert_eq!(Language::from_path(Path::new("foo/bar.rs")), None);
+        assert_eq!(
+            Language::from_path(Path::new("foo/bar.rs")),
+            Some(Language::Rust)
+        );
+        assert_eq!(Language::from_path(Path::new("foo/bar.go")), None);
+    }
+
+    #[test]
+    fn parses_a_trivial_rust_snippet() {
+        let mut parser = Language::Rust.parser().unwrap();
+        let tree = parser
+            .parse(
+                "fn main() { let x = 1; }
+",
+                None,
+            )
+            .unwrap();
+        assert!(!tree.root_node().has_error());
     }
 
     #[test]

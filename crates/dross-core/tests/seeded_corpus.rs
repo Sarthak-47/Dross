@@ -25,12 +25,30 @@ fn corpus_root() -> PathBuf {
 
 fn files_in(check: &str, polarity: &str) -> Vec<PathBuf> {
     let dir = corpus_root().join(check).join(polarity);
-    let mut out: Vec<PathBuf> = std::fs::read_dir(&dir)
+    let all: Vec<PathBuf> = std::fs::read_dir(&dir)
         .unwrap_or_else(|e| panic!("reading {}: {e}", dir.display()))
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.is_file() && Language::from_path(p).is_some())
+        .filter(|p| p.is_file())
         .collect();
+
+    // A fixture the tool cannot read used to be dropped here without a word,
+    // so a corpus file in an unsupported language proved nothing while looking
+    // like coverage. Rust fixtures sat in this corpus passing every test before
+    // `.rs` was wired up at all.
+    let unreadable: Vec<String> = all
+        .iter()
+        .filter(|p| Language::from_path(p).is_none())
+        .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
+        .collect();
+    assert!(
+        unreadable.is_empty(),
+        "corpus files in {}/{} that no grammar recognises: {unreadable:?}.          A fixture the tool cannot parse cannot test anything.",
+        check,
+        polarity
+    );
+
+    let mut out = all;
     out.sort();
     out
 }

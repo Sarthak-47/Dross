@@ -12,6 +12,7 @@ fn main() -> anyhow::Result<()> {
         "javascript" | "js" => Language::JavaScript,
         "tsx" => Language::Tsx,
         "python" | "py" => Language::Python,
+        "rust" | "rs" => Language::Rust,
         _ => Language::TypeScript,
     };
 

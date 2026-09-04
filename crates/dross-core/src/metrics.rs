@@ -71,6 +71,14 @@ fn is_branch_point(kind: &str) -> bool {
             | "ternary_expression"
             | "logical_expression"
             | "boolean_operator"
+            // Rust. `binary_expression` is deliberately absent: it covers
+            // arithmetic as well as `&&`/`||`, so counting it would inflate
+            // every function that adds two numbers.
+            | "if_expression"
+            | "match_arm"
+            | "for_expression"
+            | "while_expression"
+            | "loop_expression"
     )
 }
 
@@ -86,6 +94,13 @@ fn increases_nesting(kind: &str) -> bool {
             | "try_statement"
             | "function_declaration"
             | "function_definition"
+            // Rust
+            | "if_expression"
+            | "for_expression"
+            | "while_expression"
+            | "loop_expression"
+            | "match_expression"
+            | "function_item"
     )
 }
 

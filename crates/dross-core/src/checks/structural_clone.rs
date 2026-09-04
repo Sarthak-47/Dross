@@ -117,6 +117,13 @@ impl Check for StructuralCloneCheck {
                 let Some(func_name) = func.name.as_deref() else {
                     continue;
                 };
+                if let Some(node) = parsed
+                    .root()
+                    .descendant_for_byte_range(func.start_byte, func.end_byte)
+                    && crate::ast::is_inside_test_module(parsed, node)
+                {
+                    continue;
+                }
                 if is_constructor(func_name) {
                     continue;
                 }

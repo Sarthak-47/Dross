@@ -34,6 +34,23 @@ Existing tooling in this space is enterprise SaaS: cloud-hosted, subscription-pr
 
 Each check reports per-signal, so you can tune or disable one signal without losing the rest.
 
+### Languages
+
+JavaScript, TypeScript, TSX, Python and Rust.
+
+Rust has no `try`/`catch`, so the swallowed-exception check reads the `Err` arm
+of a `match` instead — the place a `Result` is either dealt with or quietly
+dropped. `Err(_) => {}` is reported; `Err(e) => Err(e)`, a `panic!`, or `?` are
+not, because the failure still reaches the caller. Rust also keeps its tests
+inside the files they test, under `#[cfg(test)]`, and the checks skip those the
+way they skip a `tests/` directory elsewhere.
+
+Two things deliberately have no Rust equivalent. `overly-broad-catch-type` has
+nothing to say when the error type comes from the signature rather than the
+handler, and `if let Ok(v) = ..` without an else is idiomatic enough that
+reporting it would reproduce the false positives four rounds of benchmarking
+removed.
+
 ### The self-calibrating baseline
 
 The over-engineering check does not use a hardcoded "functions over N branches are bad" rule, which breaks across codebases with different norms. It builds a distribution from the repository's own commit history, so "unusually complex" means unusual *for this codebase*. Below 30 history samples the signal stays silent rather than reporting noise.

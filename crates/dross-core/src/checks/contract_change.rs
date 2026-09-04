@@ -51,7 +51,7 @@ impl Check for ContractChangeCheck {
                 let Some(old_func) = old_funcs.get(name) else {
                     continue;
                 };
-                findings.extend(compare(&file.path, name, old_func, new_func));
+                findings.extend(compare(&file.path, name, old_func, new_func, file.language));
             }
         }
 
@@ -86,6 +86,7 @@ fn compare(
     name: &str,
     old: &FunctionDef,
     new: &FunctionDef,
+    language: Option<crate::lang::Language>,
 ) -> Vec<Finding> {
     let mut findings = Vec::new();
     let span = SourceSpan {
@@ -229,9 +230,20 @@ fn compare(
             Severity::Error,
             span,
             format!("`{name}` became async"),
-            "Callers that do not await now receive a Promise/coroutine instead of a value. \
-             In JS this fails silently at runtime rather than at the call site."
-                .to_string(),
+            // Rust makes an un-awaited caller a compile error, so describing
+            // the failure as silent would be wrong there — and this check's
+            // value rests on the reader being able to verify the claim.
+            if language == Some(crate::lang::Language::Rust) {
+                "Callers now receive a future instead of a value. Rust will not \
+                 compile a caller that ignores it, so the breakage is loud — but \
+                 every call site still has to change."
+                    .to_string()
+            } else {
+                "Callers that do not await now receive a Promise/coroutine instead \
+                 of a value. In JS this fails silently at runtime rather than at \
+                 the call site."
+                    .to_string()
+            },
         ));
     }
 
@@ -250,7 +262,13 @@ mod tests {
         let old = old_file.functions().into_iter().next().unwrap();
         let new = new_file.functions().into_iter().next().unwrap();
         let name = new.qualified_name().unwrap();
-        compare(std::path::Path::new("a.ts"), &name, &old, &new)
+        compare(
+            std::path::Path::new("a.ts"),
+            &name,
+            &old,
+            &new,
+            Some(crate::lang::Language::TypeScript),
+        )
     }
 
     fn signals(f: &[Finding]) -> Vec<&str> {
@@ -446,5 +464,58 @@ def instance_of(type: type[T]) -> int: ...
             "function f(a: string): number { return 2; }",
         );
         assert!(f.is_empty(), "got {:?}", signals(&f));
+    }
+
+    /// Rust will not compile a caller that ignores a future, so telling a Rust
+    /// user the failure is silent is simply wrong — and this check's whole
+    /// value is that the reader can verify the claim.
+    #[test]
+    fn the_async_evidence_describes_the_language_it_is_reporting_on() {
+        use crate::lang::Language;
+
+        let sig = |is_async: bool| FunctionDef {
+            name: Some("render".into()),
+            kind: crate::ast::FunctionKind::Function,
+            start_line: 1,
+            end_line: 3,
+            start_byte: 0,
+            end_byte: 10,
+            params: Vec::new(),
+            return_type: None,
+            is_async,
+            enclosing_type: None,
+        };
+
+        let rust = compare(
+            std::path::Path::new("a.rs"),
+            "render",
+            &sig(false),
+            &sig(true),
+            Some(Language::Rust),
+        );
+        let rust_evidence = &rust
+            .iter()
+            .find(|f| f.signal == "became-async")
+            .expect("became-async reported")
+            .evidence;
+        assert!(
+            rust_evidence.contains("will not compile"),
+            "{rust_evidence}"
+        );
+        assert!(!rust_evidence.contains("In JS"), "{rust_evidence}");
+
+        let js = compare(
+            std::path::Path::new("a.js"),
+            "render",
+            &sig(false),
+            &sig(true),
+            Some(Language::JavaScript),
+        );
+        let js_evidence = &js
+            .iter()
+            .find(|f| f.signal == "became-async")
+            .expect("became-async reported")
+            .evidence;
+        assert!(js_evidence.contains("fails silently"), "{js_evidence}");
     }
 }

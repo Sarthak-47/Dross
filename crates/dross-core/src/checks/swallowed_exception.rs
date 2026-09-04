@@ -36,6 +36,11 @@ impl Check for SwallowedExceptionCheck {
                 if !file.touches_range(handler.start_line, handler.end_line) {
                     continue;
                 }
+                // Rust keeps its tests inside the file they test. The
+                // path-based rule above cannot see them.
+                if crate::ast::is_inside_test_module(parsed, handler.node) {
+                    continue;
+                }
                 findings.extend(evaluate(parsed, &handler, &file.path));
             }
         }
@@ -58,6 +63,10 @@ fn catch_handlers<'a>(file: &'a ParsedFile) -> Vec<CatchHandler<'a>> {
     crate::ast::walk(file.root(), |node| {
         let is_handler = match file.language {
             Language::Python => node.kind() == "except_clause",
+            // Rust has no catch. The equivalent is the arm of a `match` that
+            // handles the error case, which is where a `Result` is either dealt
+            // with or quietly dropped.
+            Language::Rust => is_error_arm(file, node),
             _ => node.kind() == "catch_clause",
         };
         if !is_handler {
@@ -76,6 +85,22 @@ fn catch_handlers<'a>(file: &'a ParsedFile) -> Vec<CatchHandler<'a>> {
     out
 }
 
+/// Whether a node is the `Err(..)` arm of a `match`.
+///
+/// Only `Err`, and only in a match: `if let Ok(v) = ..` without an else is the
+/// other shape that drops an error, but it is idiomatic enough — and used
+/// deliberately often enough — that reporting it would repeat the false
+/// positives this check spent four rounds removing.
+fn is_error_arm(file: &ParsedFile, node: Node<'_>) -> bool {
+    if node.kind() != "match_arm" {
+        return false;
+    }
+    let Some(pattern) = node.child_by_field_name("pattern") else {
+        return false;
+    };
+    file.text(pattern).trim_start().starts_with("Err")
+}
+
 fn handler_body<'a>(language: Language, node: Node<'a>) -> Option<Node<'a>> {
     match language {
         Language::Python => {
@@ -83,6 +108,9 @@ fn handler_body<'a>(language: Language, node: Node<'a>) -> Option<Node<'a>> {
             node.named_children(&mut cursor)
                 .find(|c| c.kind() == "block")
         }
+        // A match arm's body is its `value`: either a block, or a single
+        // expression as in `Err(e) => return Err(e)`.
+        Language::Rust => node.child_by_field_name("value"),
         _ => node.child_by_field_name("body"),
     }
 }
@@ -420,9 +448,34 @@ fn body_stats(file: &ParsedFile, body: Option<Node<'_>>) -> BodyStats {
         return stats;
     }
 
+    // A match arm can answer with an expression rather than a block:
+    // `Err(e) => Err(e)` hands the failure straight back, and there is no
+    // return statement to notice.
+    if file.language == Language::Rust
+        && body.kind() != "block"
+        && is_error_shaped(file.text(body).trim())
+    {
+        stats.has_error_return = true;
+    }
+
     crate::ast::walk(body, |node| {
         match node.kind() {
             "throw_statement" | "raise_statement" => stats.has_throw = true,
+            // Rust: `panic!`, `unreachable!`, `todo!` and `?` all stop the
+            // handler from being where the failure ends.
+            "macro_invocation" => {
+                let text = file.text(node);
+                let name = text.split('!').next().unwrap_or("").trim();
+                if matches!(name, "panic" | "unreachable" | "todo" | "unimplemented") {
+                    stats.has_throw = true;
+                } else if rust_macro_logs(name) {
+                    stats.has_logging = true;
+                    if stats.log_text.is_none() {
+                        stats.log_text = Some(text.to_string());
+                    }
+                }
+            }
+            "try_expression" => stats.has_throw = true,
             "call_expression" | "call" => {
                 let text = file.text(node);
                 if looks_like_logging(text) {
@@ -584,6 +637,19 @@ fn declares_expected(text: &str) -> bool {
     .any(|needle| lower.contains(needle))
 }
 
+/// Rust logs through macros, so the call-shaped heuristic never saw them.
+///
+/// Covers the `log` and `tracing` families and the two `eprintln`-shaped
+/// escapes. `println!` is deliberately absent: writing to stdout in a library
+/// is not error reporting.
+fn rust_macro_logs(name: &str) -> bool {
+    let leaf = name.rsplit("::").next().unwrap_or(name);
+    matches!(
+        leaf,
+        "error" | "warn" | "info" | "debug" | "trace" | "eprintln" | "eprint"
+    )
+}
+
 fn looks_like_logging(text: &str) -> bool {
     const NEEDLES: [&str; 10] = [
         "console.", "logger.", "log.", "logging.", "print(", "warn(", "error(", "debug(", "info(",
@@ -599,6 +665,10 @@ fn looks_like_logging(text: &str) -> bool {
 /// A returned value that explicitly communicates failure, e.g. `Err(...)`,
 /// `{ ok: false }`, or a rejected promise.
 fn is_error_shaped(text: &str) -> bool {
+    // Rust: returning `Err(..)` hands the failure back to the caller.
+    if text.trim_start().starts_with("Err(") {
+        return true;
+    }
     let lower = text.to_ascii_lowercase();
     lower.starts_with("err(")
         || lower.contains("promise.reject")
@@ -1148,6 +1218,106 @@ except Exception as e:
             signals(&message_only).contains(&"overly-broad-catch-type"),
             "{:?}",
             signals(&message_only)
+        );
+    }
+
+    /// Rust has no catch. What it has is the `Err` arm of a match, which is
+    /// where a Result is either dealt with or quietly dropped.
+    #[test]
+    fn an_empty_error_arm_is_a_swallowed_exception() {
+        let f = run_on(
+            Language::Rust,
+            "fn load(p: &str) -> u32 {
+    match read(p) {
+        Ok(v) => v,
+        Err(_) => {}
+    }
+    0
+}
+",
+        );
+        assert!(
+            signals(&f).contains(&"empty-catch-body"),
+            "{:?}",
+            signals(&f)
+        );
+    }
+
+    #[test]
+    fn an_error_arm_that_hands_the_failure_back_is_not_a_swallow() {
+        for body in ["Err(e)", "return Err(e)", "panic!(\"{e}\")"] {
+            let src = format!(
+                "fn load(p: &str) -> Result<u32, E> {{
+    match read(p) {{
+        Ok(v) => Ok(v),
+        Err(e) => {body},
+    }}
+}}
+"
+            );
+            let f = run_on(Language::Rust, &src);
+            assert!(
+                !signals(&f).contains(&"empty-catch-body")
+                    && !signals(&f).contains(&"log-only-catch"),
+                "{body} should surface: {:?}",
+                signals(&f)
+            );
+        }
+    }
+
+    /// Rust logs through macros, which the call-shaped heuristic never saw.
+    #[test]
+    fn an_error_arm_that_only_logs_is_a_log_only_catch() {
+        let f = run_on(
+            Language::Rust,
+            "fn load(p: &str) -> u32 {
+    match read(p) {
+        Ok(v) => v,
+        Err(e) => {
+            warn!(\"read failed: {e}\");
+            0
+        }
+    }
+}
+",
+        );
+        assert!(signals(&f).contains(&"log-only-catch"), "{:?}", signals(&f));
+    }
+
+    /// The Ok arm is not a handler, and an arm carrying a comment has its
+    /// decision written down — both rules the other languages already follow.
+    #[test]
+    fn ok_arms_and_documented_arms_are_left_alone() {
+        let ok_arm = run_on(
+            Language::Rust,
+            "fn load(p: &str) -> u32 {
+    match read(p) {
+        Ok(_) => {}
+        Err(e) => return handle(e),
+    }
+    0
+}
+",
+        );
+        assert!(signals(&ok_arm).is_empty(), "{:?}", signals(&ok_arm));
+
+        let documented = run_on(
+            Language::Rust,
+            "fn load(p: &str) -> u32 {
+    match read(p) {
+        Ok(v) => v,
+        Err(_) => {
+            // A missing cache entry is the normal case.
+        }
+    }
+    0
+}
+",
+        );
+        assert!(
+            !signals(&documented).contains(&"empty-catch-body"),
+            "{:?}",
+            signals(&documented)
         );
     }
 }

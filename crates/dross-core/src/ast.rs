@@ -105,7 +105,13 @@ impl ParsedFile {
         let mut cursor = params.walk();
         let mut out = Vec::new();
         for child in params.named_children(&mut cursor) {
-            if matches!(child.kind(), "comment") {
+            // `self_parameter` is the receiver, not part of the callable
+            // contract: adding or removing `&self` changes how a method is
+            // reached, not what its callers must pass.
+            if matches!(
+                child.kind(),
+                "comment" | "self_parameter" | "attribute_item"
+            ) {
                 continue;
             }
             out.push(self.param_of(child));
@@ -164,15 +170,32 @@ impl ParsedFile {
 
     fn is_async(&self, node: Node<'_>) -> bool {
         let mut cursor = node.walk();
-        node.children(&mut cursor).any(|c| c.kind() == "async")
+        // Rust groups `async`, `const`, `unsafe` and `extern` under a
+        // `function_modifiers` node rather than placing them directly on the
+        // item, so the direct-child check alone never saw it.
+        node.children(&mut cursor).any(|c| {
+            c.kind() == "async"
+                || (c.kind() == "function_modifiers" && self.text(c).contains("async"))
+        })
     }
 
     fn enclosing_type_name(&self, node: Node<'_>) -> Option<String> {
         let mut current = node.parent();
         while let Some(n) = current {
+            // Rust: `impl Cache { .. }` names the type under `type`, and
+            // `trait Store { .. }` under `name`.
+            if n.kind() == "impl_item" {
+                return n
+                    .child_by_field_name("type")
+                    .map(|x| self.text(x).to_string());
+            }
             if matches!(
                 n.kind(),
-                "class_declaration" | "class" | "class_definition" | "interface_declaration"
+                "class_declaration"
+                    | "class"
+                    | "class_definition"
+                    | "interface_declaration"
+                    | "trait_item"
             ) {
                 return n
                     .child_by_field_name("name")
@@ -236,9 +259,56 @@ impl FunctionDef {
     }
 }
 
+/// Whether a node sits inside a `#[cfg(test)]` module.
+///
+/// Rust keeps its tests in the file they test, under `#[cfg(test)] mod tests`,
+/// rather than in separate files the way the path-based rule expects. Without
+/// this, every check that skips test code would run over Dross's own test
+/// modules — and over most of the Rust ecosystem's.
+///
+/// The attribute is a preceding sibling of the module, not a child of it.
+pub fn is_inside_test_module(file: &ParsedFile, node: Node<'_>) -> bool {
+    if file.language != Language::Rust {
+        return false;
+    }
+    let mut current = Some(node);
+    while let Some(n) = current {
+        if n.kind() == "mod_item" && preceding_attribute_contains(file, n, "cfg(test)") {
+            return true;
+        }
+        current = n.parent();
+    }
+    false
+}
+
+/// Whether an item carries `#[test]` (or a framework's equivalent).
+pub fn has_test_attribute(file: &ParsedFile, node: Node<'_>) -> bool {
+    preceding_attribute_contains(file, node, "test")
+}
+
+fn preceding_attribute_contains(file: &ParsedFile, node: Node<'_>, needle: &str) -> bool {
+    let mut sibling = node.prev_named_sibling();
+    // Several attributes can stack above one item.
+    while let Some(s) = sibling {
+        if s.kind() != "attribute_item" {
+            return false;
+        }
+        let text = file.text(s).replace(char::is_whitespace, "");
+        if text.contains(needle) {
+            return true;
+        }
+        sibling = s.prev_named_sibling();
+    }
+    false
+}
+
 pub fn is_function_node(language: Language, kind: &str) -> bool {
     match language {
         Language::Python => matches!(kind, "function_definition"),
+        // `function_signature_item` is a trait method declaration, which has a
+        // signature and no body. It is part of the type's contract, so
+        // contract-change must see it; clone detection filters it out on size.
+        Language::Rust => matches!(kind, "function_item" | "function_signature_item"),
         // Note: the bare `function` keyword is itself a node of kind
         // "function" in this grammar, so it must not be listed here or every
         // declaration counts twice.
@@ -257,6 +327,9 @@ pub fn is_function_node(language: Language, kind: &str) -> bool {
 fn classify_function(language: Language, kind: &str) -> FunctionKind {
     match language {
         Language::Python => FunctionKind::Function,
+        // Rust draws no syntactic distinction; whether it is a method depends
+        // on the enclosing item, which `enclosing_type_name` reports.
+        Language::Rust => FunctionKind::Function,
         _ => match kind {
             "arrow_function" => FunctionKind::Arrow,
             "method_definition" => FunctionKind::Method,
