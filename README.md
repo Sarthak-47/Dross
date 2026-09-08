@@ -247,7 +247,7 @@ Stated plainly, because a tool that hides these gets uninstalled at the first su
 
 - **Symbol resolution is name-based, not semantic.** tree-sitter is a syntax parser with no binder or type checker, so two functions sharing a name collapse into one entry and re-export chains are not followed. Checks that depend on repo-wide resolution consult an ambiguity set and decline to fire on ambiguous names — the limitation costs recall, never precision. A real resolver means shelling out to `tsc`/`pyright`, which would break the offline guarantee.
 - **Authorship tagging is heuristic.** Commit trailers are reliable when present; burst-write timing is not. A hunk mistagged as human silently drops to a lighter check pass, so confidence is surfaced in the UI and can be corrected rather than hidden.
-- **Language support is JS/TS/TSX and Python.** These were the launch targets.
+- **Language support is JS/TS/TSX, Python and Rust.** Everything else is invisible to the tool: a Go or Java file in a mixed repository is skipped silently, not reported as unchecked.
 - **The complexity-outlier signal needs history.** Under 30 baseline samples it reports nothing.
 
 ## Architecture
