@@ -101,12 +101,21 @@ fn compare(
 
     // Narrowing: callers that used to compile now don't.
     if new_required > old_required {
+        // By name, not by position. Skipping the first `old.params.len()`
+        // assumed a new parameter is always appended, so inserting one at the
+        // front named whichever parameter happened to land last — Dross
+        // reported its own `node_metrics(language, node)` change as "new
+        // required parameter(s): node", which is the one that was already
+        // there. The evidence line is the product; naming the wrong argument
+        // in it is the whole failure.
+        let existing: std::collections::HashSet<&str> =
+            old.params.iter().map(|p| p.name.as_str()).collect();
         let added: Vec<&str> = new
             .params
             .iter()
-            .skip(old.params.len())
             .filter(|p| !p.optional && !p.variadic)
             .map(|p| p.name.as_str())
+            .filter(|n| !existing.contains(n))
             .collect();
         findings.push(Finding::new(
             CheckId::ContractChange,
@@ -283,6 +292,35 @@ mod tests {
             "function send(url: string, retries: number) { return 1; }",
         );
         assert!(signals(&f).contains(&"required-parameter-added"));
+    }
+
+    /// Regression: the evidence named the parameter by position, so inserting
+    /// one at the front reported the parameter that was already there.
+    ///
+    /// Found by running Dross over its own commit, where `node_metrics(node)`
+    /// became `node_metrics(language, node)` and the finding said "new required
+    /// parameter(s): node".
+    #[test]
+    fn names_the_parameter_that_was_actually_added() {
+        let f = compare_src(
+            Language::TypeScript,
+            "function send(url: string) { return 1; }",
+            "function send(method: string, url: string) { return 1; }",
+        );
+        let finding = f
+            .iter()
+            .find(|x| x.signal == "required-parameter-added")
+            .expect("the signal fires");
+        assert!(
+            finding.evidence.contains("method"),
+            "must name the inserted parameter: {}",
+            finding.evidence
+        );
+        assert!(
+            !finding.evidence.contains("url"),
+            "must not name the parameter that was already there: {}",
+            finding.evidence
+        );
     }
 
     #[test]

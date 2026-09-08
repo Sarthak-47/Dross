@@ -1,6 +1,6 @@
 {
   "name": "dross",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Catches what agent-generated diffs get wrong, before you commit. Deterministic, offline, no model calls.",
   "license": "Apache-2.0",
   "repository": {

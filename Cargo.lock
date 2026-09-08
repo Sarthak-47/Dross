@@ -842,7 +842,7 @@ dependencies = [
 
 [[package]]
 name = "dross-adapters"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -851,7 +851,7 @@ dependencies = [
 
 [[package]]
 name = "dross-bench"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -863,7 +863,7 @@ dependencies = [
 
 [[package]]
 name = "dross-cli"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -875,7 +875,7 @@ dependencies = [
 
 [[package]]
 name = "dross-core"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -895,7 +895,7 @@ dependencies = [
 
 [[package]]
 name = "dross-desktop"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "dross-adapters",
