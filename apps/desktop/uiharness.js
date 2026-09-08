@@ -7,6 +7,11 @@
  * findings across 8 signals — so only the transport is stubbed; nothing about
  * the content is invented.
  *
+ * Keep it that way. Editing the fixture to exercise a view is the same failure
+ * as the invented commit history this app used to fall back to, one file
+ * further from the user. To see a state the real report does not contain, run
+ * the engine over a repository that produces it and replace the whole file.
+ *
  * This exists because every visual check before it was of an empty state. The
  * first run of it found six bugs, including a source pane that had never
  * rendered a line of source and a precision bar that had never drawn anything.

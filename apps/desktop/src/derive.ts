@@ -149,10 +149,13 @@ export function unreadableRows(report: Report): SkippedRow[] {
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .map(([ext]) => ext)
     .join(", ");
+  // Phrased to read after the word "skipped", which the row already prints:
+  // "skipped  .go, .java — 3 file(s)". Putting "not read" in the head made it
+  // "skipped ... not read", which says the same thing twice.
   return [
     {
-      check: `${total} changed file(s) not read`,
-      reason: `No grammar for ${exts}. These were not analysed — a clean result does not cover them.`,
+      check: `${exts} — ${total} file(s)`,
+      reason: `Dross has no grammar for these, so they were not analysed. A clean result does not cover them.`,
     },
   ];
 }

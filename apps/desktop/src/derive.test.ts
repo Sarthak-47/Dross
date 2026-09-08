@@ -243,8 +243,9 @@ describe("unreadableRows", () => {
       unreadable: { ".java": 1, ".go": 9 },
     });
     expect(rows).toHaveLength(1);
-    expect(rows[0].check).toBe("10 changed file(s) not read");
-    expect(rows[0].reason).toContain(".go, .java");
+    // Reads as "skipped  .go, .java — 10 file(s)" in the panel.
+    expect(rows[0].check).toBe(".go, .java — 10 file(s)");
+    expect(rows[0].reason).toContain("no grammar");
     expect(rows[0].reason).toContain("does not cover");
   });
 });
