@@ -6,7 +6,19 @@ It catches what agent-generated diffs specifically get wrong — duplicated logi
 
 **Every check is a parser, a hash, or a graph algorithm. There are no model calls anywhere in the pipeline.** That is deliberate: it is what makes runs deterministic, reproducible, offline, and free.
 
-> Status: pre-release. The engine, CLI, adapters, desktop app, and benchmark harness are implemented and tested, and precision has been measured across 22 open-source repositories — see [Benchmarks](#benchmarks) for the numbers and their limits.
+> **Status: 1.0.** What that claims and what it does not:
+>
+> **It claims** the CLI flags, the JSON report shape, the config file and the
+> adapter contracts are stable and will not break without a major version; that
+> the engine, CLI, adapters, desktop app and benchmark harness are implemented
+> and tested; and that precision has been measured across 22 open-source
+> repositories and published with its limits, not asserted.
+>
+> **It does not claim** field-tested. The corpus was chosen by the author,
+> labelled by the author, and no one else has yet run this against a repository
+> the author did not pick. Three signals are corroborated by independent tools;
+> the rest are single-labeller numbers with the conflict of interest stated. See
+> [Benchmarks](#benchmarks) before trusting any figure here.
 
 ![The findings view: a swallowed exception in socket.io, beside the source it refers to](docs/images/findings.png)
 
@@ -199,20 +211,22 @@ Measured, not asserted, and published as they came out.
 Per check, with everything enabled: contract-change 98.7%, over-engineering
 73.7%, swallowed-exception 52.1%, structural-clone 0%.
 
-Five signals measured badly enough to ship **disabled**, including clone
+Four signals measured badly enough to ship **disabled**, including clone
 detection — in a mature codebase, structurally identical functions are almost
 always deliberate parallel structure, and the check could not tell that from
-reinvention. They stay implemented and switch on per repository. The reasoning
-and the numbers behind each are in
-[docs/BENCHMARK_RESULTS.md](docs/BENCHMARK_RESULTS.md).
+reinvention. They stay implemented and switch on per repository. A fifth,
+`overkill-design-pattern`, was **deleted** rather than disabled: zero true
+positives across 24 labelled findings and three fix attempts that left the
+volume higher than they found it. The reasoning and the numbers behind each are
+in [docs/BENCHMARK_RESULTS.md](docs/BENCHMARK_RESULTS.md).
 
 **Recall** is measured against the seeded corpus in `fixtures/seeded`, not this
 run: a label pass over emitted findings contains no false negatives by
 construction. Every seeded positive is caught and no seeded negative flagged,
 verified in CI with all signals enabled.
 
-**Two of the signals are corroborated independently.** For the two that have
-close equivalents in mature linters, the judgement is taken out of it entirely:
+**Three of the signals are corroborated independently.** Where a signal has a
+close equivalent in a mature tool, the judgement is taken out of it entirely:
 every one of 149 findings that ruff or oxlint has a rule for, they also flagged.
 
 | Dross signal | Independent rule | Agreement |
@@ -221,7 +235,14 @@ every one of 149 findings that ruff or oxlint has a rule for, they also flagged.
 | empty-catch-body (Python) | ruff `S110` | 6/6 |
 | overly-broad-catch-type | ruff `BLE001` / `E722` | 30/30 |
 
-Agreement is not truth, and it covers only two of fourteen signals — but it is
+Clone findings are checked the same way against **jscpd**, an independent
+copy-paste detector, but the result there is a floor rather than a rate: jscpd
+compares tokens and Dross compares normalized ASTs, so a renamed clone — the
+case Dross exists to catch — is the exact case jscpd is built not to see.
+Agreement therefore means "duplicate by any definition"; silence means nothing
+either way. `docs/BENCHMARK_RESULTS.md` gives the split.
+
+Agreement is not truth, and it does not cover the other ten signals — but it is
 evidence that does not come from the labeller.
 
 **Two limits worth knowing before you trust the rest.** The labeling was a

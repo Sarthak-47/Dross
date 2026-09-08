@@ -131,7 +131,7 @@ export const SIGNALS: SignalRow[] = [
     def: "off",
     rounds: ["r2 8%", "r3 8%", "r4 0%"],
     reason:
-      "Structural identity alone could not tell an accidental reinvention from deliberate parallel structure — two adapters, a locale family, a pair of validators. It now also compares the vocabulary a function uses: the members it reaches for and the functions it calls, which is what survives a rename. That cut finding volume on the corpus by 77%, but the output has not been labelled since, so the number beside this signal is still the last one measured and it stays off.",
+      "Structural identity alone could not tell an accidental reinvention from deliberate parallel structure — two adapters, a locale family, a pair of validators. It now also compares the vocabulary a function uses: the members it reaches for and the functions it calls, which is what survives a rename. 35 of the 81 findings jscpd could be pointed at are duplicates at the token level too, which is a floor on true positives rather than a precision figure — jscpd cannot see a renamed clone at all. The output has not been labelled since, so the number beside this signal is still the last one measured and it stays off.",
   },
   {
     name: "silent-optimistic-return",

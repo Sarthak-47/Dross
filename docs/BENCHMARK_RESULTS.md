@@ -86,8 +86,6 @@ accurate ones with it.
   failure is the documented contract far more often than it is a hidden
   failure: predicates, `get_or_none` lookups, best-effort serialisation,
   deliberately ignored malformed input.
-- **overkill-design-pattern** — 0 of 24. An ordinary factory containing one
-  `if` is not a one-variant registry.
 - **single-implementation-abstraction** — 0 of 24. What it finds are
   published extension points subclassed by consumers outside the repository.
 - **complexity-to-problem-size-outlier** — 0 of 12. Measures added rather than
@@ -107,7 +105,6 @@ never be measured again, which is exactly when a re-measurement is wanted. Same
 | silent-optimistic-return | 25 | **6** | −76% |
 | single-implementation-abstraction | 9 | **5** | −45% |
 | log-only-catch | 11 | **9** | −19% |
-| overkill-design-pattern | 27 | 30 | **+11%** |
 | complexity-to-problem-size-outlier | 19 | 22 | not comparable |
 
 **This is finding volume, not precision.** No labelling pass has been run over
@@ -141,7 +138,7 @@ findings are date-fns: `differenceInMinutes` against `differenceInSeconds`,
 share real vocabulary, because they are genuinely about the same things.
 Vocabulary cannot separate those, and nothing in this round claims to.
 
-### The one that did not work
+### The one that did not work, and was deleted
 
 `overkill-design-pattern` went **up**, 27 findings to 30, across three attempts.
 Each attempt made the per-branch definition more defensible — a conditional that
@@ -158,6 +155,9 @@ The premise is what does not survive. "A factory-shaped function with one branch
 is premature abstraction" is not separable from ordinary code by shape, because
 ordinary constructors have branches too. Recorded here rather than tuned further:
 three attempts in one sitting is enough to call it.
+
+**Removed in 1.0**, rather than left disabled. A signal that cannot be made to
+work is dead code, and a config key for it is an invitation to turn it on.
 
 ### A measurement that is not comparable
 
@@ -216,12 +216,17 @@ communities, so for those the judgement can be taken out entirely:
 | overly-broad-catch-type | ruff `BLE001` or `E722` | 30 | 30 | 100% |
 | **all** | | **149** | **149** | **100%** |
 
-Same 22 repositories, 300 commits each. Reproduce with:
+Same 22 repositories, 300 commits each, and it reproduces from a clean run:
+the figures above were re-measured for 1.0 against a corpus whose clones had
+since been deepened, and came back identical. Reproduce with:
 
 ```bash
 python -m venv .venv && .venv/bin/pip install -r .bench/requirements.txt
-cargo run -p dross-bench -- run --repo-dir .bench/repos --commits 300 --out findings.jsonl
+cd .bench && npm install && cd ..
+cargo run -p dross-bench -- run --repo-dir .bench/repos --commits 300 --all-signals --out findings.jsonl
 python .bench/crossvalidate.py findings.jsonl
+python .bench/clonevalidate.py findings.jsonl
+python .bench/clonevalidate.py findings.jsonl --shuffle   # the negative control
 ```
 
 **What this is.** Every finding Dross made that these tools also have a rule for,
@@ -248,6 +253,65 @@ scored 94% and was wrong to: it mapped breadth to `BLE001` alone, and counted
 httpx's bare `except:` handlers as disagreements when ruff covers those under
 `E722` instead. The fault was in the comparison, not the tool being compared.
 
+### A third signal, against an independent clone detector
+
+`near-duplicate-function` is checked the same way against **jscpd**, a
+token-based copy/paste detector. The result is shaped differently from the ruff
+and oxlint comparison and must be read differently.
+
+jscpd compares token streams. Dross compares normalized ASTs, so it ignores
+identifier and literal differences on purpose — a renamed copy is the case it
+exists to catch, and the exact case jscpd is built not to see. The two tools
+therefore overlap on one class of finding and diverge on another, and the split
+is not symmetric:
+
+- **jscpd agrees** — the fragments are duplicated at the token level. An
+  independent detector calls it a clone, so it is a true positive under any
+  definition of the word.
+- **jscpd is silent** — this says nothing either way. The pair may be a renamed
+  clone (Dross right, jscpd blind by construction) or parallel structure over
+  different vocabulary (Dross wrong). The comparison cannot separate those.
+
+| | Findings |
+|---|---:|
+| near-duplicate-function, whole corpus | 247 |
+| counterpart absent from the tree at that commit | 166 |
+| **compared against jscpd** | **81** |
+| corroborated — duplicated at the token level too | **35** |
+| jscpd has nothing to say | 46 |
+
+**35 of 81 is a lower bound on true positives, not a precision figure**, and it
+is written that way everywhere it appears. Turning it into a rate would mean
+counting jscpd's blind spot as a Dross error.
+
+The 166 dropped findings are not a defect in either tool. The fingerprint index
+is built from the checked-out tree while the harness replays history, so a
+finding at an old commit can name a counterpart at its present-day path —
+date-fns moved `src/` to `pkgs/core/src/`, and every finding across that move
+names a file the old commit does not have. That is how the tool is used in
+practice (index the repository you have, check the diff you are about to
+commit); it is only the historical replay that cannot follow it.
+
+The harness's own negative control repoints each finding at a random file of the
+same language elsewhere in the same tree: **0 of 247 corroborated**, against 35
+of 81 for the real pairings. Two weaker controls were tried first
+and are recorded because they are the ones a reader would reach for: repointing
+at a different *finding's* counterpart scored 30%, and keeping the file while
+moving the line scored 33% — not because the harness is loose, but because the
+corpus contains genuine clone families. date-fns has a dozen mutually
+near-identical `differenceInCalendar*` functions in files that are themselves
+almost entirely duplicated, so a random swap inside one still lands on a real
+duplicate. A control the subject matter can pass by accident measures the
+corpus, not the harness.
+
+It also caught the harness being wrong. The first run reported 0 of 12
+corroborated, which reads exactly like a result. jscpd had been handed a Windows
+path, fast-glob read the backslashes as escape characters, and jscpd exited 0
+having scanned no files at all.
+
+`near-duplicate-function` stays **off by default**. A floor on true positives is
+not precision, and nothing here measures the 46.
+
 ### Why not the usual automated oracle
 
 The standard substitute for human labelling is the closed-warning heuristic:
@@ -271,6 +335,16 @@ lower number is the one that was published.
 Treat these as an internal signal, not a validated benchmark, until a human
 labels an independent sample. `dross-bench report` accepts two `--labels`
 files and reports Cohen's kappa for exactly that comparison.
+
+## A note on comparing volumes across rounds
+
+The corpus clones are shallow and have been deepened since round 4, so every
+repository now replays more history than it did then: react-router went from 7
+commits producing findings to 79, socket.io from 14 to 60. Finding *counts* are
+therefore not comparable between rounds, and the before/after volume table above
+should be read only within the round that produced it. The precision figures are
+per-finding and unaffected; the corroboration figures were re-run on the current
+corpus rather than carried forward.
 
 ## Reproducing
 
