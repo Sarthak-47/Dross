@@ -1,0 +1,33 @@
+#!/bin/sh
+# Everything CI checks, before the push rather than after it.
+#
+# Written after a `cargo fmt` slip went out on a release commit and turned CI
+# red on all three platforms. The formatting was fixed one commit later, which
+# is exactly the problem: the break was known-avoidable, took a round trip to
+# find, and left a red mark against a tagged commit forever.
+#
+# Enable it once per clone:
+#
+#     git config core.hooksPath .githooks
+#
+# It is not installed automatically. A hook that appears without being asked
+# for is the behaviour the adapter code refuses to have, and the same rule
+# applies to this repository's own tooling.
+#
+# Skip it deliberately with `git push --no-verify` when you mean to.
+set -e
+
+echo "pre-push: cargo fmt --check"
+cargo fmt --all -- --check
+
+echo "pre-push: clippy"
+cargo clippy -p dross-core -p dross-cli -p dross-adapters -p dross-bench \
+  --all-targets -- -D warnings
+
+echo "pre-push: cargo test"
+cargo test --workspace --quiet
+
+echo "pre-push: desktop"
+npm test --prefix apps/desktop --silent
+
+echo "pre-push: ok"

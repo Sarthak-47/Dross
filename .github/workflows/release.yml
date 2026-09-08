@@ -7,6 +7,17 @@ on:
 
 permissions:
   contents: write
+  # Build provenance. The binaries are unsigned — no Apple Developer ID, no
+  # Windows EV certificate — so Gatekeeper and SmartScreen will warn either
+  # way. What this does give is a signed, verifiable statement of which
+  # workflow, at which commit, produced each file:
+  #
+  #     gh attestation verify dross-x86_64-unknown-linux-gnu --repo Sarthak-47/Dross
+  #
+  # That answers "did this come from the source I can read", which is the
+  # question a code-signing certificate would otherwise be the only way to ask.
+  id-token: write
+  attestations: write
 
 jobs:
   build-cli:
@@ -139,13 +150,32 @@ jobs:
           path: dist
           merge-multiple: true
 
+      # Written before the attestation so the file is covered by it too.
+      # Built outside dist/ and moved in, so a re-run cannot checksum the
+      # previous run's checksum file.
+      - name: Checksums
+        run: |
+          cd dist
+          rm -f SHA256SUMS.txt
+          sha256sum -- * > ../SHA256SUMS.txt
+          mv ../SHA256SUMS.txt .
+          cat SHA256SUMS.txt
+
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*
+
       # The single publishing step: every binary and installer from the matrix
       # above lands in one draft release.
       #
-      # This needs a write-scoped GITHUB_TOKEN. The workflow asks for it above,
-      # but that request is capped by Settings -> Actions -> General -> Workflow
-      # permissions, which must be "Read and write". While it is read-only this
-      # step fails and the artifacts are still downloadable from the run.
+      # This needs a write-scoped GITHUB_TOKEN, requested in the `permissions`
+      # block above. That request is honoured even when the repository default
+      # under Settings -> Actions -> General is read-only — verified on the
+      # v0.1.4 and v1.0.0 releases, both of which created their draft from a
+      # repository set to read-only defaults.
+      #
+      # It is left as a draft on purpose. Publishing is the one step that
+      # should follow a human downloading an artifact and running it.
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*

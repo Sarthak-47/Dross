@@ -81,6 +81,33 @@ cargo build --release
 
 The CLI lands at `target/release/dross`.
 
+Prebuilt binaries and desktop installers are on the
+[releases page](https://github.com/Sarthak-47/Dross/releases).
+
+### Verifying a download
+
+The binaries are **not code-signed** — there is no Apple Developer ID and no
+Windows EV certificate behind this project — so macOS Gatekeeper and Windows
+SmartScreen will warn on first run. That warning is accurate and you should not
+ignore it on the strength of a README.
+
+What is available instead is build provenance: every release asset carries a
+signed attestation naming the workflow and commit that produced it.
+
+```bash
+gh attestation verify dross-x86_64-unknown-linux-gnu --repo Sarthak-47/Dross
+```
+
+Each release also ships `SHA256SUMS.txt`, itself covered by the attestation.
+
+```bash
+sha256sum -c SHA256SUMS.txt --ignore-missing
+```
+
+Provenance is not a signature: it proves the file came from this repository's
+CI at a commit you can read, not that anyone has vouched for the contents.
+Building from source, above, needs no trust in either.
+
 ## Use
 
 Build the index once per repository. This also replays history to construct the complexity baseline.
@@ -303,6 +330,18 @@ cargo test --workspace
 ```bash
 cargo clippy --workspace --all-targets -- -D warnings
 ```
+
+Run everything CI runs before pushing, rather than after:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+That enables a `pre-push` hook covering formatting, clippy, the Rust tests and
+the desktop tests. It is opt-in per clone and not installed automatically —
+a hook that appears without being asked for is the behaviour the adapter code
+refuses to have, and the same rule applies here. `git push --no-verify` skips
+it deliberately.
 
 CI runs on Linux, macOS, and Windows, and includes a determinism gate: the same diff analyzed twice must produce byte-identical output. Reproducibility is the core claim, so it is enforced rather than asserted.
 
