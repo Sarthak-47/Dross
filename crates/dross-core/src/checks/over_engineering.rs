@@ -464,7 +464,7 @@ fn excess_indirection(
         else {
             continue;
         };
-        let m = metrics::node_metrics(node);
+        let m = metrics::node_metrics(parsed.language, node);
         // Only "simple" operations qualify — a complex function earns its depth.
         if m.cyclomatic > 2 {
             continue;

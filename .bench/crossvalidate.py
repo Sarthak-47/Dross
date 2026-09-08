@@ -25,6 +25,25 @@ by a tool with no stake in this repository. That is not a precision measurement
 — agreement is not truth, and the rules are not identical — but it is evidence
 that does not come from me.
 
+Mappings considered and NOT adopted, recorded because a reader will reach for
+them and because "we looked and there wasn't one" is itself a finding:
+
+    log-only-catch <-> ruff TRY400 (error-instead-of-exception). Measured at
+    2 of 9 on the corpus, and it should not have been expected to do better:
+    TRY400 asks whether a handler used `logging.error` where `logging.exception`
+    would keep the traceback. log-only-catch asks whether the caller ever finds
+    out the operation failed. A handler that logs and then re-raises trips
+    TRY400 and is not a log-only catch; a handler that logs correctly and
+    swallows is a log-only catch and does not trip TRY400. Adopting it would
+    have dressed up a different question as corroboration.
+
+    silent-optimistic-return, single-implementation-abstraction,
+    pass-through-wrapper, unused-generality. No rule in ruff, oxlint or pylint
+    asks these questions. ARG001 is about a parameter that goes unused, not one
+    that is always passed the same literal; the RET family is about return
+    style, not about what a failure path returns. These stay single-labeller
+    numbers because nothing else measures them, not because nobody looked.
+
 The alternative was considered and rejected. The standard automated substitute
 is the "closed-warning heuristic": call a warning real if it disappears from a
 later revision. Kang, Aw and Lo (ICSE 2022, arXiv:2202.05982) manually checked

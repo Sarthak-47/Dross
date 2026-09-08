@@ -227,6 +227,7 @@ cargo run -p dross-bench -- run --repo-dir .bench/repos --commits 300 --all-sign
 python .bench/crossvalidate.py findings.jsonl
 python .bench/clonevalidate.py findings.jsonl
 python .bench/clonevalidate.py findings.jsonl --shuffle   # the negative control
+python .bench/complexityvalidate.py --all
 ```
 
 **What this is.** Every finding Dross made that these tools also have a rule for,
@@ -311,6 +312,63 @@ having scanned no files at all.
 
 `near-duplicate-function` stays **off by default**. A floor on true positives is
 not precision, and nothing here measures the 46.
+
+### The complexity metric, against a reference implementation
+
+The other two comparisons check *findings*. This one checks a *number*, and it
+is the only one of the three with a right answer.
+
+`Metrics::cyclomatic` calls itself "McCabe cyclomatic complexity". That is a
+named metric from a 1976 paper with a settled definition, not a heuristic — so
+an independent implementation either agrees or one of the two is wrong. ruff
+ships `C901`, which is the reference `mccabe` algorithm, and will report the
+figure for every function when `max-complexity` is set to `0`.
+
+It did not agree. **Two real faults**, both found this way:
+
+- **`else` was counted as a decision of its own.** An `if`/`else` is one
+  decision; nothing in McCabe counts the else arm separately. `for`/`else` and
+  `while`/`else` were double-counted the same way. This is the worst shape of
+  error available to this particular signal, because it scores a change against
+  a distribution: the inflation was proportional to how many else branches a
+  function happened to have, which moves functions around in that distribution
+  for a reason unrelated to complexity.
+- **Python's `match` was counted as nothing at all.** The branch-point list had
+  the JavaScript node kinds (`switch_case`, `case_statement`) and not Python's
+  `case_clause`, so a five-arm match statement scored exactly the same as a
+  straight line. Fixing that surfaced a second, smaller version of the `else`
+  fault in the same place: `case _` and `case name` always match, so like an
+  `else` they are the default path rather than a decision, and counting them
+  made every one of black's pattern-matching fixtures read one too high.
+
+Two further divergences were differences of definition and were resolved toward
+the standard, because the point of naming a published metric is that someone
+else's implementation can check it: boolean operators (`and`, `&&`) and ternary
+expressions are counted by the *extended* variant of the metric, not by
+McCabe's, and are no longer counted here.
+
+| | Agreement with ruff `C901` |
+|---|---:|
+| Before | 74% |
+| After | **98%** |
+
+34,431 functions, compared one at a time across the ten Python repositories in
+the corpus. `.bench/complexityvalidate.py` reproduces it.
+
+**The residual 2% is one deliberate difference**, and it is one-directional —
+after these fixes there is no function anywhere in the corpus that Dross scores
+*higher* than mccabe does. mccabe folds a nested
+function's decisions into its parent *and* reports the nested function
+separately, so the same branches appear in both figures it prints. Dross indexes
+every function once and scores it once: a parent gets one point for containing a
+definition and nothing more. Both behaviours are pinned by tests carrying the
+reference figures.
+
+This does not make `complexity-to-problem-size-outlier` trustworthy — it is
+still unlabelled and still ships disabled. It makes the number the signal is
+built on correct, which is a prerequisite rather than a substitute. The index
+schema version is bumped so that no baseline built from the old figures is
+scored against the new ones.
 
 ### Why not the usual automated oracle
 

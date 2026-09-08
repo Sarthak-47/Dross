@@ -269,6 +269,14 @@ case Dross exists to catch — is the exact case jscpd is built not to see.
 Agreement therefore means "duplicate by any definition"; silence means nothing
 either way. `docs/BENCHMARK_RESULTS.md` gives the split.
 
+The **complexity metric** is checked the same way, against ruff's `C901` — the
+reference `mccabe` implementation — function by function across every Python
+repository in the corpus. That comparison found two real faults: `else` counted
+as a decision of its own, and Python's `match` not counted at all. Across 34,431
+functions agreement went from 74% to **98%**, and no function is scored higher
+than the reference — the remainder is one documented difference over nested
+functions.
+
 Agreement is not truth, and it does not cover the other ten signals — but it is
 evidence that does not come from the labeller.
 

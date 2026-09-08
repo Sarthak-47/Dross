@@ -14,8 +14,10 @@ use crate::ast::ParsedFile;
 use crate::fingerprint::{Fingerprint, NUM_HASHES, fingerprint};
 use crate::lang::Language;
 
-/// Bumped whenever fingerprinting or normalization changes, so a stale index
-/// is rebuilt rather than silently compared against incompatible signatures.
+/// Bumped whenever the layout changes *or* a stored value starts being computed
+/// differently, so a stale index is rebuilt rather than silently compared
+/// against figures that mean something else.
+///
 /// 2: functions carry the domain vocabulary the clone check compares.
 ///
 /// 3: version 2 shipped with a migration that could not add the column it had
@@ -26,7 +28,13 @@ use crate::lang::Language;
 ///
 /// 4: complexity_baseline gains a unique commit, because it had none and every
 /// re-index inserted the same history again.
-const SCHEMA_VERSION: i64 = 4;
+///
+/// 5: `cyclomatic` is strict McCabe now. It counted `else` as a decision of its
+/// own and missed Python's `match` entirely, so every figure an earlier build
+/// wrote is a different measurement — and the complexity baseline is a
+/// distribution built out of exactly those figures. Mixing the two would score
+/// new commits against an old scale.
+const SCHEMA_VERSION: i64 = 5;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndexedFunction {

@@ -158,7 +158,7 @@ export const SIGNALS: SignalRow[] = [
     def: "off",
     rounds: ["r2 0%", "r3 —", "r4 —"],
     reason:
-      "It summed the complexity of every function a change touched rather than the complexity the change added, so a repository-wide reformat scored 8.4 standard deviations while adding nothing. Fixed, and it no longer runs on test suites or on changes whose absolute complexity is trivial — a z-score describes a distribution, not a magnitude. The baseline it scores against was also counting every re-index as new samples, which inflated the very count that gates this signal to thirty. Not re-validated since.",
+      "It summed the complexity of every function a change touched rather than the complexity the change added, so a repository-wide reformat scored 8.4 standard deviations while adding nothing. Fixed, and it no longer runs on test suites or on changes whose absolute complexity is trivial — a z-score describes a distribution, not a magnitude. The number it scores is now strict McCabe, checked function by function against ruff's C901 across 34,431 functions in ten Python repositories: that comparison found `else` being counted as a decision of its own and Python's `match` not being counted at all, and agreement went from 74% to 98%. The signal itself is still unlabelled and stays off — a sound measurement is a prerequisite for trusting it, not a substitute.",
   },
 ];
 
