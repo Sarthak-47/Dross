@@ -1,0 +1,3 @@
+# Independent linters used by crossvalidate.py.
+# Installed into a project-local venv: python -m venv .venv
+ruff==0.16.6

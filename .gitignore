@@ -33,6 +33,11 @@ Thumbs.db
 # the results in docs/ cannot be reproduced without them.
 .bench/*
 !.bench/*.py
+# The pinned versions of the independent tools the cross-validation compares
+# against. Without these the results in docs/ cannot be reproduced, which is
+# the one thing those results are for.
+!.bench/requirements.txt
+!.bench/package.json
 
 # npm wrapper downloads the native binary at install time
 npm/dross-cli-wrapper/bin/dross

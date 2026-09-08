@@ -1,0 +1,8 @@
+{
+  "name": "dross-bench-crossvalidate",
+  "private": true,
+  "description": "Independent tools the cross-validation harness compares Dross against. Project-local, never shipped.",
+  "devDependencies": {
+    "jscpd": "4.0.5"
+  }
+}
