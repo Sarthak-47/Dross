@@ -143,15 +143,6 @@ export const SIGNALS: SignalRow[] = [
       "Returning a default on failure is the documented contract far more often than it is a concealment. Two shapes say so outright and are excluded now: a name that promises a safe or optional result — stringifySafely, get_or_none, try_parse — and a handler returning the same value the function already returns elsewhere, which every caller therefore handles. Volume fell 76% on the corpus; the remainder has not been labelled.",
   },
   {
-    name: "overkill-design-pattern",
-    precision: 0,
-    on: false,
-    def: "off",
-    rounds: ["r2 0%", "r3 0%", "r4 —"],
-    reason:
-      "Zero true positives across 24 labelled findings, and three attempts to fix it left the volume higher than it started. Each made the per-branch definition more defensible, but the signal fires on exactly one variant, so any change to how variants are counted moves functions into the bucket as readily as out of it. The premise is what fails: an ordinary constructor has branches too.",
-  },
-  {
     name: "single-implementation-abstraction",
     precision: 0,
     on: false,

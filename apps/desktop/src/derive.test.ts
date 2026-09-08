@@ -6,10 +6,19 @@ import {
   toConnectionCards,
   toHistoryBars,
   toHistoryRows,
+  unreadableRows,
   WEIGHT,
 } from "./derive";
-import type { AdapterStatus } from "./types";
+import type { AdapterStatus, Report } from "./types";
 import type { Run } from "./settingsSync";
+
+const emptyReport: Report = {
+  findings: [],
+  files_analyzed: 0,
+  duration_ms: 0,
+  risk_score: 0,
+  skipped: [],
+};
 
 const run = (recordedAt: string, error = 0, warning = 0, info = 0): Run => ({
   recordedAt,
@@ -214,5 +223,28 @@ describe("formatDuration", () => {
   it("uses seconds at a second and above", () => {
     expect(formatDuration(1000)).toBe("1.0s");
     expect(formatDuration(2940)).toBe("2.9s");
+  });
+});
+
+describe("unreadableRows", () => {
+  /** A repository whose files Dross can all read gets no row at all. */
+  it("says nothing when every changed file was readable", () => {
+    expect(unreadableRows({ ...emptyReport })).toEqual([]);
+    expect(unreadableRows({ ...emptyReport, unreadable: {} })).toEqual([]);
+  });
+
+  /**
+   * The bug: `files_analyzed` counted every changed file, so a Go repository
+   * saw "clean, 14 files" over code no grammar had opened.
+   */
+  it("names the languages it could not read, commonest first", () => {
+    const rows = unreadableRows({
+      ...emptyReport,
+      unreadable: { ".java": 1, ".go": 9 },
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].check).toBe("10 changed file(s) not read");
+    expect(rows[0].reason).toContain(".go, .java");
+    expect(rows[0].reason).toContain("does not cover");
   });
 });

@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::authorship::AuthorshipMap;
@@ -21,6 +22,31 @@ pub struct Report {
     pub risk_score: u32,
     /// Checks that could not run and why — never silently skipped.
     pub skipped: Vec<SkippedCheck>,
+    /// Changed files no grammar recognises, counted by extension.
+    ///
+    /// `files_analyzed` counts only what was actually parsed. Without this,
+    /// running Dross over a Go service printed `clean (14 files)` — a report
+    /// that read none of them and said so nowhere. A tool that cannot see a
+    /// file has to say it cannot see it, or a clean result means nothing.
+    #[serde(default)]
+    pub unreadable: BTreeMap<String, usize>,
+}
+
+impl Report {
+    /// `.go, .java` — the extensions in `unreadable`, commonest first.
+    pub fn unreadable_summary(&self) -> String {
+        let mut by_count: Vec<_> = self.unreadable.iter().collect();
+        by_count.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
+        by_count
+            .into_iter()
+            .map(|(ext, _)| ext.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
+    pub fn unreadable_count(&self) -> usize {
+        self.unreadable.values().sum()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,14 +69,20 @@ impl Report {
 
     /// One-line summary, the CLI's default output (spec section 4).
     pub fn summary_line(&self) -> String {
+        // Appended to both branches: "clean" over files nothing could read is
+        // the one result a reader must not take at face value.
+        let unread = match self.unreadable_count() {
+            0 => String::new(),
+            n => format!(", {n} not read ({})", self.unreadable_summary()),
+        };
         if self.findings.is_empty() {
             return format!(
-                "dross: clean ({} file(s), {}ms)",
+                "dross: clean ({} file(s){unread}, {}ms)",
                 self.files_analyzed, self.duration_ms
             );
         }
         format!(
-            "dross: {} finding(s) — {} error, {} warning, {} info across {} file(s) ({}ms)",
+            "dross: {} finding(s) — {} error, {} warning, {} info across {} file(s){unread} ({}ms)",
             self.findings.len(),
             self.count_by_severity(Severity::Error),
             self.count_by_severity(Severity::Warning),
@@ -176,13 +208,27 @@ impl Engine {
                 .then_with(|| a.span.start_line.cmp(&b.span.start_line))
         });
 
+        let mut unreadable: BTreeMap<String, usize> = BTreeMap::new();
+        for diff in diffs.iter().filter(|d| d.language.is_none()) {
+            let ext = diff
+                .path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| format!(".{e}"))
+                .unwrap_or_else(|| "(no extension)".to_string());
+            *unreadable.entry(ext).or_default() += 1;
+        }
+
         let risk_score = risk_score(&findings);
         Ok(Report {
-            files_analyzed: diffs.len(),
+            // Only what was parsed. Counting every changed file here credited
+            // the tool with reading files it has no grammar for.
+            files_analyzed: diffs.len() - unreadable.values().sum::<usize>(),
             duration_ms: started.elapsed().as_millis(),
             findings,
             risk_score,
             skipped,
+            unreadable,
         })
     }
 
@@ -373,6 +419,47 @@ impl<'a> CheckContext<'a> {
 mod tests {
     use super::*;
     use crate::diff::{ChangeKind, Hunk};
+
+    /// A file no grammar recognises must be reported, not dropped. Running
+    /// Dross over a Go service printed `clean (14 files)` having read none of
+    /// them — the worst failure available to a tool whose output is trusted
+    /// when it says nothing is wrong.
+    #[test]
+    fn files_no_grammar_recognises_are_reported_not_counted_as_analyzed() {
+        let mut go = diff_of("cmd/server/main.go", "func main() {}
+", Language::JavaScript);
+        go.language = None;
+        let mut go2 = diff_of("cmd/server/route.go", "func route() {}
+", Language::JavaScript);
+        go2.language = None;
+        let mut mk = diff_of("Makefile", "all:
+	go build
+", Language::JavaScript);
+        mk.language = None;
+        let diffs = vec![
+            diff_of("a.js", "function a() { return 1; }
+", Language::JavaScript),
+            go,
+            go2,
+            mk,
+        ];
+
+        let engine = Engine::new(Config::default());
+        let report = engine
+            .analyze_diffs(Path::new("."), &diffs, &AuthorshipMap::default())
+            .unwrap();
+
+        assert_eq!(report.files_analyzed, 1, "only the .js file was parsed");
+        assert_eq!(report.unreadable_count(), 3);
+        // Commonest extension first, so the reader sees the language they
+        // are missing rather than an alphabetical accident.
+        assert_eq!(report.unreadable_summary(), ".go, (no extension)");
+        assert!(
+            report.summary_line().contains("3 not read (.go, (no extension))"),
+            "the summary must say so: {}",
+            report.summary_line()
+        );
+    }
 
     fn diff_of(path: &str, source: &str, language: Language) -> FileDiff {
         FileDiff {

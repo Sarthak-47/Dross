@@ -16,6 +16,7 @@ import {
   toConnectionCards,
   toHistoryBars,
   toHistoryRows,
+  unreadableRows,
 } from "./derive";
 import { applyConfig, groupHistory, toConfig } from "./settingsSync";
 import { deriveView } from "./viewState";
@@ -235,7 +236,10 @@ export default function App() {
     if (!report) return { findings: [], skipped: [], risk: 0 };
     return {
       risk: report.risk_score,
-      skipped: report.skipped,
+      // Files no grammar could read are listed beside the skipped checks,
+      // because that is what they are. A clean panel over unread files is
+      // the one screen in this app that must not be reassuring.
+      skipped: [...report.skipped, ...unreadableRows(report)],
       findings: report.findings.map((f) => ({
         severity: f.severity,
         message: f.message,

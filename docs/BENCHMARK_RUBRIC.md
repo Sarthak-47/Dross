@@ -81,11 +81,6 @@ reports a precision it will not reproduce for a user.
 - `fp`: the symbol is public API, or callers outside the analyzed sample vary
   it.
 
-### over-engineering / overkill-design-pattern
-- `tp`: the dispatch has one branch and no registered alternatives.
-- `fp`: variants are registered elsewhere (a plugin registry, a config file, a
-  dynamic import) that the syntactic check cannot follow.
-
 ### over-engineering / complexity-to-problem-size-outlier
 - `tp`: the change is genuinely more convoluted than the problem warrants.
 - `fp`: the complexity is inherent — a parser, a state machine, a compatibility

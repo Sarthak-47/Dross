@@ -85,11 +85,6 @@ impl Default for Config {
 /// one noisy signal takes the accurate ones with it.
 fn default_disabled_signals() -> HashSet<String> {
     [
-        // 0 true positives across 24 labeled findings, over two rounds and a
-        // fix attempt. An ordinary factory containing one `if` is not a
-        // one-variant registry, and separating the two needs resolution this
-        // check does not have.
-        "overkill-design-pattern",
         // 0 of 24. What it finds are published extension points — socket.io's
         // `BaseXHR`, `ClusterAdapter` — subclassed by consumers the repository
         // cannot see. Name-based resolution cannot tell those from
@@ -165,7 +160,6 @@ mod tests {
     fn signals_with_no_measured_precision_are_off_by_default() {
         let c = Config::default();
         for signal in [
-            "overkill-design-pattern",
             "single-implementation-abstraction",
             "complexity-to-problem-size-outlier",
             "near-duplicate-function",

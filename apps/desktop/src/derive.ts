@@ -16,6 +16,8 @@ import type {
   ConnectionCard,
   HistoryBar,
   HistoryRow,
+  Report,
+  SkippedRow,
 } from "./types";
 import type { Run } from "./settingsSync";
 
@@ -127,4 +129,30 @@ export const WEIGHT = { error: 25, warning: 8, info: 2 } as const;
 export function formatDuration(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
+}
+
+/**
+ * The unreadable-file tally as a skipped row.
+ *
+ * A language Dross has no grammar for is not analysed and never was — but the
+ * report counted those files as analysed and said nothing, so a Go repository
+ * got a clean panel over code the tool had not opened. Rendering it beside the
+ * skipped checks puts it where a reader already looks to find out what did not
+ * run. Returns an empty list when everything changed was readable, so the row
+ * never appears for a repository that has no such files.
+ */
+export function unreadableRows(report: Report): SkippedRow[] {
+  const counts = Object.entries(report.unreadable ?? {});
+  if (counts.length === 0) return [];
+  const total = counts.reduce((n, [, c]) => n + c, 0);
+  const exts = counts
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([ext]) => ext)
+    .join(", ");
+  return [
+    {
+      check: `${total} changed file(s) not read`,
+      reason: `No grammar for ${exts}. These were not analysed — a clean result does not cover them.`,
+    },
+  ];
 }

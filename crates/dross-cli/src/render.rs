@@ -97,6 +97,17 @@ fn print_skipped(report: &Report) {
             skipped.reason
         );
     }
+    // Printed last and in the same voice as a skipped check, because it is
+    // one: "clean" over files no grammar could read is the single most
+    // misleading thing this tool can print.
+    if report.unreadable_count() > 0 {
+        println!(
+            "  {} {} changed file(s) not read — no grammar for {}",
+            "note:".yellow().bold(),
+            report.unreadable_count(),
+            report.unreadable_summary()
+        );
+    }
 }
 
 fn count(report: &Report, severity: Severity) -> usize {

@@ -45,6 +45,8 @@ export interface Report {
   duration_ms: number;
   risk_score: number;
   skipped: SkippedCheck[];
+  /** Changed files no grammar recognises, counted by extension. */
+  unreadable?: Record<string, number>;
 }
 
 export interface RepositoryInfo {
