@@ -209,7 +209,10 @@ impl Engine {
         });
 
         let mut unreadable: BTreeMap<String, usize> = BTreeMap::new();
-        for diff in diffs.iter().filter(|d| d.language.is_none()) {
+        for diff in diffs
+            .iter()
+            .filter(|d| d.language.is_none() && Language::is_unsupported_source(&d.path))
+        {
             let ext = diff
                 .path
                 .extension()
@@ -223,7 +226,7 @@ impl Engine {
         Ok(Report {
             // Only what was parsed. Counting every changed file here credited
             // the tool with reading files it has no grammar for.
-            files_analyzed: diffs.len() - unreadable.values().sum::<usize>(),
+            files_analyzed: diffs.iter().filter(|d| d.language.is_some()).count(),
             duration_ms: started.elapsed().as_millis(),
             findings,
             risk_score,
@@ -420,34 +423,21 @@ mod tests {
     use super::*;
     use crate::diff::{ChangeKind, Hunk};
 
-    /// A file no grammar recognises must be reported, not dropped. Running
-    /// Dross over a Go service printed `clean (14 files)` having read none of
-    /// them — the worst failure available to a tool whose output is trusted
-    /// when it says nothing is wrong.
+    /// Source in a language no grammar recognises must be reported, not
+    /// dropped. Running Dross over a Go service printed `clean (14 files)`
+    /// having read none of them — the worst failure available to a tool whose
+    /// output is trusted when it says nothing is wrong.
+    ///
+    /// A `Makefile` is not that. It is not source Dross would ever check, and
+    /// naming it teaches the reader to skip the note before the commit that
+    /// actually adds Go.
     #[test]
-    fn files_no_grammar_recognises_are_reported_not_counted_as_analyzed() {
-        let mut go = diff_of(
-            "cmd/server/main.go",
-            "func main() {}
-",
-            Language::JavaScript,
-        );
-        go.language = None;
-        let mut go2 = diff_of(
-            "cmd/server/route.go",
-            "func route() {}
-",
-            Language::JavaScript,
-        );
-        go2.language = None;
-        let mut mk = diff_of(
-            "Makefile",
-            "all:
-	go build
-",
-            Language::JavaScript,
-        );
-        mk.language = None;
+    fn source_no_grammar_recognises_is_reported_and_other_files_are_not() {
+        let unparsed = |path: &str, body: &str| {
+            let mut d = diff_of(path, body, Language::JavaScript);
+            d.language = None;
+            d
+        };
         let diffs = vec![
             diff_of(
                 "a.js",
@@ -455,9 +445,38 @@ mod tests {
 ",
                 Language::JavaScript,
             ),
-            go,
-            go2,
-            mk,
+            unparsed(
+                "cmd/server/main.go",
+                "func main() {}
+",
+            ),
+            unparsed(
+                "cmd/server/route.go",
+                "func route() {}
+",
+            ),
+            unparsed(
+                "src/Widget.java",
+                "class Widget {}
+",
+            ),
+            // Neither of these is source in an unsupported language.
+            unparsed(
+                "README.md",
+                "# hi
+",
+            ),
+            unparsed(
+                "Cargo.lock",
+                "[[package]]
+",
+            ),
+            unparsed(
+                "Makefile",
+                "all:
+	go build
+",
+            ),
         ];
 
         let engine = Engine::new(Config::default());
@@ -466,14 +485,12 @@ mod tests {
             .unwrap();
 
         assert_eq!(report.files_analyzed, 1, "only the .js file was parsed");
-        assert_eq!(report.unreadable_count(), 3);
-        // Commonest extension first, so the reader sees the language they
-        // are missing rather than an alphabetical accident.
-        assert_eq!(report.unreadable_summary(), ".go, (no extension)");
+        assert_eq!(report.unreadable_count(), 3, "two Go files and one Java");
+        // Commonest extension first, so the reader sees the language they are
+        // missing rather than an alphabetical accident.
+        assert_eq!(report.unreadable_summary(), ".go, .java");
         assert!(
-            report
-                .summary_line()
-                .contains("3 not read (.go, (no extension))"),
+            report.summary_line().contains("3 not read (.go, .java)"),
             "the summary must say so: {}",
             report.summary_line()
         );

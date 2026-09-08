@@ -27,6 +27,60 @@ impl Language {
         }
     }
 
+    /// Whether this path is source code in a language Dross has no grammar for.
+    ///
+    /// Only used to tell the user what a run did not cover, so it lists
+    /// programming languages and nothing else. Reporting every unparsed file
+    /// listed `README.md`, `Cargo.lock` and `.gitignore` as "not read", which
+    /// is true and useless: a note that fires on every commit is one the
+    /// reader learns to skip, and then it is not there on the commit that adds
+    /// a `.go` file.
+    ///
+    /// An extension missing from this list is silence, not a false claim of
+    /// coverage — `files_analyzed` counts only what was parsed either way.
+    pub fn is_unsupported_source(path: &Path) -> bool {
+        let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
+            return false;
+        };
+        matches!(
+            ext,
+            "go" | "java"
+                | "kt"
+                | "kts"
+                | "scala"
+                | "rb"
+                | "php"
+                | "cs"
+                | "c"
+                | "h"
+                | "cc"
+                | "cpp"
+                | "cxx"
+                | "hpp"
+                | "hh"
+                | "swift"
+                | "m"
+                | "mm"
+                | "dart"
+                | "ex"
+                | "exs"
+                | "erl"
+                | "hs"
+                | "ml"
+                | "clj"
+                | "cljs"
+                | "lua"
+                | "pl"
+                | "pm"
+                | "r"
+                | "jl"
+                | "zig"
+                | "nim"
+                | "vue"
+                | "svelte"
+        )
+    }
+
     pub fn grammar(self) -> tree_sitter::Language {
         match self {
             Language::JavaScript => tree_sitter_javascript::LANGUAGE.into(),
