@@ -426,19 +426,35 @@ mod tests {
     /// when it says nothing is wrong.
     #[test]
     fn files_no_grammar_recognises_are_reported_not_counted_as_analyzed() {
-        let mut go = diff_of("cmd/server/main.go", "func main() {}
-", Language::JavaScript);
+        let mut go = diff_of(
+            "cmd/server/main.go",
+            "func main() {}
+",
+            Language::JavaScript,
+        );
         go.language = None;
-        let mut go2 = diff_of("cmd/server/route.go", "func route() {}
-", Language::JavaScript);
+        let mut go2 = diff_of(
+            "cmd/server/route.go",
+            "func route() {}
+",
+            Language::JavaScript,
+        );
         go2.language = None;
-        let mut mk = diff_of("Makefile", "all:
+        let mut mk = diff_of(
+            "Makefile",
+            "all:
 	go build
-", Language::JavaScript);
+",
+            Language::JavaScript,
+        );
         mk.language = None;
         let diffs = vec![
-            diff_of("a.js", "function a() { return 1; }
-", Language::JavaScript),
+            diff_of(
+                "a.js",
+                "function a() { return 1; }
+",
+                Language::JavaScript,
+            ),
             go,
             go2,
             mk,
@@ -455,7 +471,9 @@ mod tests {
         // are missing rather than an alphabetical accident.
         assert_eq!(report.unreadable_summary(), ".go, (no extension)");
         assert!(
-            report.summary_line().contains("3 not read (.go, (no extension))"),
+            report
+                .summary_line()
+                .contains("3 not read (.go, (no extension))"),
             "the summary must say so: {}",
             report.summary_line()
         );
