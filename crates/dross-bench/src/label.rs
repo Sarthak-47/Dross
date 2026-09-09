@@ -177,13 +177,35 @@ mod tests {
     #[test]
     fn the_same_finding_across_commits_is_one_row() {
         let raw = vec![
-            finding("socket.io", "a.ts", 179, "c3", "ClusterAdapter has one impl"),
-            finding("socket.io", "a.ts", 179, "c2", "ClusterAdapter has one impl"),
-            finding("socket.io", "a.ts", 179, "c1", "ClusterAdapter has one impl"),
+            finding(
+                "socket.io",
+                "a.ts",
+                179,
+                "c3",
+                "ClusterAdapter has one impl",
+            ),
+            finding(
+                "socket.io",
+                "a.ts",
+                179,
+                "c2",
+                "ClusterAdapter has one impl",
+            ),
+            finding(
+                "socket.io",
+                "a.ts",
+                179,
+                "c1",
+                "ClusterAdapter has one impl",
+            ),
             finding("express", "b.js", 540, "d1", "returns undefined"),
         ];
         let distinct = distinct_findings(raw);
-        assert_eq!(distinct.len(), 2, "one per distinct (repo, file, line, message)");
+        assert_eq!(
+            distinct.len(),
+            2,
+            "one per distinct (repo, file, line, message)"
+        );
         // Newest-first walk means the first seen is the representative kept.
         assert_eq!(distinct[0].commit, "c3");
     }
