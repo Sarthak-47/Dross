@@ -126,39 +126,39 @@ export const SIGNALS: SignalRow[] = [
   },
   {
     name: "near-duplicate-function",
-    precision: 0,
+    precision: 3,
     on: false,
     def: "off",
-    rounds: ["r2 8%", "r3 8%", "r4 0%"],
+    rounds: ["r2 8%", "r3 8%", "r4 0%", "indep 2.6%"],
     reason:
-      "Structural identity alone could not tell an accidental reinvention from deliberate parallel structure — two adapters, a locale family, a pair of validators. It now also compares the vocabulary a function uses: the members it reaches for and the functions it calls, which is what survives a rename. 35 of the 81 findings jscpd could be pointed at are duplicates at the token level too, which is a floor on true positives rather than a precision figure — jscpd cannot see a renamed clone at all. The output has not been labelled since, so the number beside this signal is still the last one measured and it stays off.",
+      "Structural identity alone could not tell an accidental reinvention from deliberate parallel structure — two adapters, a locale family, a pair of validators. It now also compares the vocabulary a function uses: the members it reaches for and the functions it calls, which is what survives a rename. An independent reviewer then labelled 40 of its findings and marked 37 false alarms — 2.6% precision — all of them intentional twins: sibling cluster APIs, a mirrored mini/classic helper pair, date functions whose time-of-day contracts differ. The one real duplicate they found is the same one jscpd corroborated. It stays off; 2.6% is now a sourced number to improve against, not an unmeasured one.",
   },
   {
     name: "silent-optimistic-return",
     precision: 0,
     on: false,
     def: "off",
-    rounds: ["r2 0%", "r3 0%", "r4 0%"],
+    rounds: ["r2 0%", "r3 0%", "r4 0%", "indep 0%"],
     reason:
-      "Returning a default on failure is the documented contract far more often than it is a concealment. Two shapes say so outright and are excluded now: a name that promises a safe or optional result — stringifySafely, get_or_none, try_parse — and a handler returning the same value the function already returns elsewhere, which every caller therefore handles. Volume fell 76% on the corpus; the remainder has not been labelled.",
+      "Returning a default on failure is the documented contract far more often than it is a concealment. Two shapes say so outright and are excluded now: a name that promises a safe or optional result — stringifySafely, get_or_none, try_parse — and a handler returning the same value the function already returns elsewhere. An independent reviewer labelled all 12 of its findings on the corpus as false alarms — retry signals, cache misses, best-effort clones. The premise is strong; this implementation does not yet read the API contract the way judging it requires, so it stays off.",
   },
   {
     name: "single-implementation-abstraction",
     precision: 0,
     on: false,
     def: "off",
-    rounds: ["r2 0%", "r3 0%", "r4 —"],
+    rounds: ["r2 0%", "r3 0%", "r4 —", "indep 0%"],
     reason:
-      "Zero of 24. What it found were published extension points subclassed by consumers the repository cannot see. A type named Base*, Abstract* or *Base is the author saying \"subclass this\", and those are excluded now — every finding on the corpus was one, and the volume fell by 44%. Still off: the remainder has not been labelled.",
+      "Zero of 24. What it found were published extension points subclassed by consumers the repository cannot see. A type named Base*, Abstract* or *Base is the author saying \"subclass this\", and those are excluded now. After that exclusion the deduplicated corpus held one finding, socket.io's ClusterAdapter — whose one subclass is itself abstract and whose real implementations live in other packages — which an independent reviewer marked a false alarm. A review prompt, not a verdict, and off.",
   },
   {
     name: "complexity-to-problem-size-outlier",
     precision: 0,
     on: false,
     def: "off",
-    rounds: ["r2 0%", "r3 —", "r4 —"],
+    rounds: ["r2 0%", "r3 —", "r4 —", "indep 0%"],
     reason:
-      "It summed the complexity of every function a change touched rather than the complexity the change added, so a repository-wide reformat scored 8.4 standard deviations while adding nothing. Fixed, and it no longer runs on test suites or on changes whose absolute complexity is trivial — a z-score describes a distribution, not a magnitude. The number it scores is now strict McCabe, checked function by function against ruff's C901 across 34,431 functions in ten Python repositories: that comparison found `else` being counted as a decision of its own and Python's `match` not being counted at all, and agreement went from 74% to 98%. The signal itself is still unlabelled and stays off — a sound measurement is a prerequisite for trusting it, not a substitute.",
+      "It summed the complexity of every function a change touched rather than the complexity the change added, so a repository-wide reformat scored 8.4 standard deviations while adding nothing. Fixed, and it no longer runs on test suites or on changes whose absolute complexity is trivial. The number it scores is now strict McCabe, checked function by function against ruff's C901 across 34,431 functions in ten Python repositories: agreement went from 74% to 98%. But a correct complexity number is not a useful signal on its own: an independent reviewer labelled all 26 of its findings false alarms, because a z-score cannot separate accidental complexity from a parser or a state machine. Demoted to a review prompt, and off.",
   },
 ];
 

@@ -14,10 +14,12 @@ It catches what agent-generated diffs specifically get wrong — duplicated logi
 > and tested; and that precision has been measured across 22 open-source
 > repositories and published with its limits, not asserted.
 >
-> **It does not claim** field-tested. The corpus was chosen by the author,
-> labelled by the author, and no one else has yet run this against a repository
-> the author did not pick. Three signals are corroborated by independent tools;
-> the rest are single-labeller numbers with the conflict of interest stated. See
+> **It does not claim** field-tested. The corpus was chosen by the author, and
+> no one has yet run this against a repository the author did not pick. Three
+> signals are corroborated by independent tools, and the four disabled signals
+> have now been labelled by an independent reviewer — who put all four near zero
+> precision, which is why they stay off. The twelve enabled signals' precision
+> is still a single-labeller number with the conflict of interest stated. See
 > [Benchmarks](#benchmarks) before trusting any figure here.
 
 ![The findings view: a swallowed exception in socket.io, beside the source it refers to](docs/images/findings.png)
@@ -238,14 +240,18 @@ Measured, not asserted, and published as they came out.
 Per check, with everything enabled: contract-change 98.7%, over-engineering
 73.7%, swallowed-exception 52.1%, structural-clone 0%.
 
-Four signals measured badly enough to ship **disabled**, including clone
-detection — in a mature codebase, structurally identical functions are almost
-always deliberate parallel structure, and the check could not tell that from
-reinvention. They stay implemented and switch on per repository. A fifth,
+Four signals ship **disabled**, and an independent reviewer has now labelled
+their output: near-duplicate-function 2.6%, the other three 0% precision on the
+sampled corpus. The clone case is the pattern — in a mature codebase,
+structurally identical functions are almost always deliberate parallel
+structure, and the check cannot tell that from reinvention. They stay
+implemented and switch on per repository; the numbers are honest floors to
+improve against, not a reason to trust them yet. A fifth,
 `overkill-design-pattern`, was **deleted** rather than disabled: zero true
 positives across 24 labelled findings and three fix attempts that left the
-volume higher than they found it. The reasoning and the numbers behind each are
-in [docs/BENCHMARK_RESULTS.md](docs/BENCHMARK_RESULTS.md).
+volume higher than they found it. The reasoning, the independent labels, and
+the numbers behind each are in
+[docs/BENCHMARK_RESULTS.md](docs/BENCHMARK_RESULTS.md).
 
 **Recall** is measured against the seeded corpus in `fixtures/seeded`, not this
 run: a label pass over emitted findings contains no false negatives by

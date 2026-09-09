@@ -100,6 +100,47 @@ eleven false positives — a sound idea whose implementation still needs the
 contract awareness it is missing. The premise being right is a reason to keep
 working on the signal, not a reason to trust its current output.
 
+### Independent labelling — the resolution
+
+The per-finding pass the section above calls for has now happened, by someone
+who is not the author and not a model. Working from the current engine's output
+— the deduplicated sample, 79 findings across the four — with the code and
+source repositories to hand, they returned a verdict on each.
+`docs/benchmark-labels-independent.jsonl` is that label set;
+`dross-bench report --labels docs/benchmark-labels-independent.jsonl`
+reproduces the table.
+
+| Signal | tp | fp | precision | 95% CI |
+|---|---:|---:|---:|---|
+| near-duplicate-function | 1 | 37 | 2.6% | 0.5–13.5% |
+| silent-optimistic-return | 0 | 12 | 0.0% | 0.0–24.3% |
+| single-implementation-abstraction | 0 | 1 | 0.0% | 0.0–79.3% |
+| complexity-to-problem-size-outlier | 0 | 26 | 0.0% | 0.0–12.9% |
+
+**All four stay off — and now the number saying so comes from outside.** This
+is the sharpest possible statement of the premise-versus-output distinction:
+an earlier independent review of the *ideas* rated near-duplicate and
+silent-optimistic strong enough to enable, and the independent labelling of the
+*output* puts both near zero. Both readings are correct about different things.
+The ideas are sound; these implementations mostly fire on code that is fine.
+
+The single true positive is instructive. It is axios's `trimOWS` against
+`trimSPorHTAB` — a genuine copy of a whitespace-trimming loop — and it is the
+same finding jscpd independently corroborated in the clone cross-validation.
+Two independent sources, a token detector and a human, landed on the one real
+duplicate in forty. Everything else the labeller marked was deliberate parallel
+structure: sibling cluster APIs (`socketsJoin`/`socketsLeave`), the `endOfWeek`
+/ `lastDayOfWeek` pair whose time-of-day contracts differ, zod's mirrored
+mini/classic helpers. That is exactly the failure the original benchmark
+predicted, now measured by someone with no stake in the answer.
+
+What this does not do is close the signals off forever. A 2.6% detector has a
+precise, honestly-sourced number to improve against, which is worth more than
+an unmeasured one. But nothing here ships on until that number moves, and it
+will take a rebuilt discriminator, not a threshold nudge.
+
+### The pre-rework numbers, for the record
+
 - **near-duplicate-function** — 8.3%, 8.3%, then 0% across three rounds and
   three fix attempts. Each fix cut the volume without moving the
   false-positive rate. In a mature codebase, structurally identical
