@@ -118,6 +118,9 @@
   .bar nav a:hover { color: var(--ember-d); }
   .bar .ghint { display: none; }
   @media (min-width: 720px) { .bar .ghint { display: inline; } }
+  /* Below the fold on a phone the in-page anchors wrap and crowd the mark;
+     the whole page is a short scroll, so drop them and keep the wordmark. */
+  @media (max-width: 600px) { .bar nav { display: none; } }
 
   /* ---- hero ---- */
   .hero { padding: 40px 0 20px; }
