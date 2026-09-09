@@ -2,9 +2,10 @@ name: Pages
 
 # Publishes the landing page in site/ to GitHub Pages.
 #
-# One-time setup by the repository owner: Settings -> Pages -> Build and
-# deployment -> Source -> "GitHub Actions". Until that is selected the deploy
-# step has nowhere to publish and fails; the built artifact is still on the run.
+# configure-pages runs with enablement: true, so the first run turns Pages on
+# by itself (source: GitHub Actions) — no manual setting needed. If an account
+# or org policy forbids the workflow from enabling Pages, enable it once by hand
+# at Settings -> Pages -> Source -> "GitHub Actions" and re-run.
 
 on:
   push:
@@ -31,6 +32,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
