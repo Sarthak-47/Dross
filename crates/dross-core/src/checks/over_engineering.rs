@@ -600,10 +600,17 @@ fn complexity_outlier(ctx: &CheckContext<'_>) -> Vec<Finding> {
         return Vec::new();
     }
 
+    // Info, not Warning: a review prompt, not a verdict. "Problem size" is not
+    // directly measurable, so a change that is genuinely disproportionate and
+    // one whose complexity is imposed by the domain — a parser, a state
+    // machine, a compatibility shim — look identical to a z-score. An
+    // independent research review reached the same conclusion, rating this a
+    // review signal rather than an automatic label. It asks a question a human
+    // answers; it does not decide.
     vec![Finding::new(
         CheckId::OverEngineering,
         "complexity-to-problem-size-outlier",
-        Severity::Warning,
+        Severity::Info,
         anchor.unwrap(),
         format!("This change is {z:.1} standard deviations more complex than this repo's norm"),
         format!(

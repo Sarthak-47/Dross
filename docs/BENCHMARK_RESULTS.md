@@ -72,6 +72,34 @@ switch on per repository. The reason to default them off is that a
 pre-commit check is uninstalled as a whole: one noisy signal takes the
 accurate ones with it.
 
+### Two tiers, not one
+
+An independent reviewer, working from the literature on code cloning, in-band
+error returns (Go's own code-review guidance), speculative generality
+(Microsoft's framework-design rules), and essential-versus-accidental
+complexity (SEI), assessed the four. Their conclusion split the group in two,
+and it is reflected in the severities:
+
+- **Concrete hazards** — `near-duplicate-function` and `silent-optimistic-return`.
+  These are correctness and maintainability problems with a defensible
+  yes/no answer, and they fire at **warning**.
+- **Design-judgement prompts** — `single-implementation-abstraction` and
+  `complexity-to-problem-size-outlier`. These ask a question a human answers
+  rather than deciding, and they fire at **info**. `complexity` was demoted
+  from warning to info for exactly this reason: "problem size" is not directly
+  measurable, so an outlier is a prompt to look, never a verdict.
+
+The distinction matters, but note what that review did and did not do. It
+judged the **premises** of the four signals — sound, and well grounded — from
+their descriptions. It did **not** look at Dross's actual output on the corpus,
+so it cannot substitute for the per-finding pass that decides whether *this
+implementation* fires accurately enough to enable. The two are independent
+questions: `silent-optimistic-return` has a premise the reviewer rated "very
+high", and a first read of its twelve actual findings on this corpus was
+eleven false positives — a sound idea whose implementation still needs the
+contract awareness it is missing. The premise being right is a reason to keep
+working on the signal, not a reason to trust its current output.
+
 - **near-duplicate-function** — 8.3%, 8.3%, then 0% across three rounds and
   three fix attempts. Each fix cut the volume without moving the
   false-positive rate. In a mature codebase, structurally identical
