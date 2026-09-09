@@ -1,0 +1,596 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dross — the pre-commit inspector for AI diffs</title>
+<meta name="description" content="Dross catches what AI-generated diffs get wrong — swallowed exceptions, silently changed contracts, duplicated logic, self-validating tests, over-engineering. Every check is a parser, a hash, or a graph algorithm. No model calls anywhere.">
+<meta property="og:title" content="Dross — the pre-commit inspector for AI diffs">
+<meta property="og:description" content="Deterministic, offline, free. Every check is a parser, a hash, or a graph algorithm — no model calls anywhere.">
+<meta property="og:type" content="website">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo:ital,wght@0,400;0,600;0,800;1,600&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+  /* ------------------------------------------------------------------ *
+   * Dross landing page. A deliberately single visual world: an inked
+   * newsprint comic. Light-committed by design — every colour is painted
+   * from a token so it holds on any host ground, dark or light.
+   *
+   * The comic reads through layout and ink, not a novelty typeface:
+   * heavy panel borders with a hard offset shadow, Ben-Day halftone dots,
+   * speech bubbles, action bursts. Anton letters the poster words; Archivo
+   * carries the prose; IBM Plex Mono — Dross's own type — carries the code.
+   * ------------------------------------------------------------------ */
+  :root {
+    --paper:   #efe7d6;   /* warm newsprint */
+    --paper-2: #e4d9c2;   /* recessed panel */
+    --ink:     #17130d;   /* the line colour, near-black warm */
+    --ink-2:   #4a4230;   /* secondary ink for body text */
+    --ember:   #d1531c;   /* Dross's accent — the spot red-orange */
+    --ember-d: #a03f13;
+    --steel:   #2b6673;   /* cool second flat colour */
+    --steel-d: #1d4a54;
+    --paper-ink: #efe7d6; /* ink-on-this reads as paper */
+    --shadow: 7px 7px 0 var(--ink);
+    --shadow-sm: 4px 4px 0 var(--ink);
+    --sans: "Archivo", system-ui, -apple-system, sans-serif;
+    --poster: "Anton", "Archivo", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body {
+    margin: 0;
+    background: var(--paper);
+    /* faint newsprint tooth */
+    background-image: radial-gradient(var(--ink) 0.5px, transparent 0.6px);
+    background-size: 4px 4px;
+    background-blend-mode: multiply;
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 17px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; }
+  h1, h2, h3 { text-wrap: balance; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+
+  /* ---- shared comic devices ---- */
+  .panel {
+    background: var(--paper);
+    border: 3px solid var(--ink);
+    box-shadow: var(--shadow);
+    position: relative;
+  }
+  .halftone {
+    background-image: radial-gradient(var(--ink) 22%, transparent 24%);
+    background-size: 9px 9px;
+  }
+  .halftone-ember {
+    background-image: radial-gradient(var(--ember) 26%, transparent 28%);
+    background-size: 10px 10px;
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ember-d);
+  }
+  .stamp {
+    font-family: var(--poster);
+    letter-spacing: 0.02em;
+    color: var(--ember);
+    border: 3px solid var(--ember);
+    border-radius: 6px;
+    padding: 4px 12px 2px;
+    transform: rotate(-7deg);
+    text-transform: uppercase;
+    display: inline-block;
+    line-height: 1;
+    box-shadow: 2px 2px 0 rgba(160,63,19,0.35);
+  }
+
+  /* ---- top bar ---- */
+  header.bar {
+    border-bottom: 3px solid var(--ink);
+    background: var(--paper);
+    position: sticky; top: 0; z-index: 50;
+  }
+  .bar .wrap { display: flex; align-items: center; gap: 18px; height: 60px; }
+  .logo {
+    font-family: var(--poster);
+    font-size: 30px; line-height: 1;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    padding-top: 4px;
+  }
+  .logo .dot { color: var(--ember); }
+  .bar nav { margin-left: auto; display: flex; gap: 22px; align-items: center; }
+  .bar nav a {
+    font-family: var(--mono); font-size: 13px; font-weight: 600;
+    text-decoration: none; letter-spacing: 0.04em;
+  }
+  .bar nav a:hover { color: var(--ember-d); }
+  .bar .ghint { display: none; }
+  @media (min-width: 720px) { .bar .ghint { display: inline; } }
+
+  /* ---- hero ---- */
+  .hero { padding: 40px 0 20px; }
+  .hero-grid {
+    display: grid; grid-template-columns: 1.35fr 1fr; gap: 22px;
+    align-items: stretch;
+  }
+  @media (max-width: 860px) { .hero-grid { grid-template-columns: 1fr; } }
+
+  .hero-main { padding: 34px 34px 30px; overflow: hidden; }
+  .hero-main .kicker { margin: 0 0 14px; }
+  .hero h1 {
+    font-family: var(--poster);
+    font-weight: 400;
+    font-size: clamp(52px, 9vw, 104px);
+    line-height: 0.92;
+    letter-spacing: 0.005em;
+    text-transform: uppercase;
+    margin: 0;
+  }
+  .hero h1 .skim { color: var(--ember); display: inline-block; }
+  .hero .sub {
+    font-size: clamp(18px, 2.4vw, 23px);
+    font-weight: 600;
+    margin: 20px 0 0;
+    max-width: 30ch;
+  }
+  .hero .sub .u { text-decoration: 3px underline var(--ember); text-underline-offset: 4px; }
+  .hero .lede { color: var(--ink-2); margin: 16px 0 0; max-width: 46ch; }
+  .cta { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 26px; }
+  .btn {
+    font-family: var(--sans); font-weight: 800; font-size: 15px;
+    text-decoration: none; text-transform: uppercase; letter-spacing: 0.04em;
+    padding: 13px 22px; border: 3px solid var(--ink);
+    box-shadow: var(--shadow-sm); background: var(--paper); color: var(--ink);
+    transition: transform 0.08s ease, box-shadow 0.08s ease;
+  }
+  .btn.primary { background: var(--ember); color: var(--paper-ink); }
+  .btn:hover { transform: translate(-2px,-2px); box-shadow: 6px 6px 0 var(--ink); }
+  .btn:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 var(--ink); }
+  .btn:focus-visible { outline: 3px solid var(--steel); outline-offset: 3px; }
+
+  /* inspector panel with speech bubble */
+  .hero-side {
+    padding: 22px; display: flex; flex-direction: column; gap: 18px;
+    background: var(--paper-2);
+  }
+  .bubble {
+    background: var(--paper); border: 3px solid var(--ink); border-radius: 16px;
+    padding: 16px 18px; position: relative; box-shadow: var(--shadow-sm);
+    font-weight: 600; font-size: 16px;
+  }
+  .bubble::after {
+    content: ""; position: absolute; left: 34px; bottom: -18px;
+    width: 26px; height: 20px; background: var(--paper);
+    border-right: 3px solid var(--ink); border-bottom: 3px solid var(--ink);
+    transform: skewX(-20deg);
+  }
+  .bubble b { color: var(--ember-d); }
+  .inspector { flex: 1; display: grid; place-items: center; min-height: 220px; position: relative; }
+  .inspector svg { width: 100%; height: auto; max-width: 300px; display: block; }
+  .burst {
+    position: absolute; right: -14px; top: -14px;
+    font-family: var(--poster); font-size: 15px; color: var(--paper-ink);
+    background: var(--steel); border: 3px solid var(--ink);
+    padding: 9px 12px 7px; text-transform: uppercase; line-height: 1;
+    transform: rotate(8deg); box-shadow: var(--shadow-sm);
+    clip-path: polygon(0 12%,12% 0,50% 10%,88% 0,100% 12%,92% 50%,100% 88%,88% 100%,50% 90%,12% 100%,0 88%,8% 50%);
+    padding: 14px 18px;
+  }
+
+  /* ---- section scaffolding ---- */
+  section { padding: 34px 0; }
+  .sec-head { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 22px; flex-wrap: wrap; }
+  .sec-head h2 {
+    font-family: var(--poster); font-weight: 400; text-transform: uppercase;
+    font-size: clamp(30px, 5vw, 52px); line-height: 0.95; margin: 6px 0 0;
+    letter-spacing: 0.01em;
+  }
+  .sec-head p { margin: 0 0 6px auto; color: var(--ink-2); font-weight: 600; max-width: 34ch; text-align: right; }
+  @media (max-width: 640px) { .sec-head p { margin: 0; text-align: left; } }
+
+  /* ---- thesis ---- */
+  .thesis { background: var(--ink); color: var(--paper-ink); border: 3px solid var(--ink); box-shadow: var(--shadow); }
+  .thesis .inner { padding: 40px 34px; display: grid; grid-template-columns: 1.2fr 1fr; gap: 30px; align-items: center; }
+  @media (max-width: 800px) { .thesis .inner { grid-template-columns: 1fr; } }
+  .thesis h2 {
+    font-family: var(--poster); font-weight: 400; text-transform: uppercase;
+    font-size: clamp(28px, 4.4vw, 46px); line-height: 0.98; margin: 0;
+  }
+  .thesis h2 em { color: var(--ember); font-style: normal; }
+  .thesis p { color: #d9cfba; margin: 16px 0 0; }
+  .flow { display: grid; gap: 12px; }
+  .flow .step {
+    border: 3px solid var(--paper-ink); padding: 12px 16px; font-family: var(--mono);
+    font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 12px;
+    background: rgba(255,255,255,0.03);
+  }
+  .flow .step .n { font-family: var(--poster); color: var(--ember); font-size: 22px; }
+  .flow .arrow { text-align: center; color: var(--ember); font-size: 20px; line-height: 0.4; }
+
+  /* ---- rogues gallery ---- */
+  .gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  @media (max-width: 860px) { .gallery { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 560px) { .gallery { grid-template-columns: 1fr; } }
+  .suspect { padding: 0; display: flex; flex-direction: column; }
+  .suspect .mug {
+    border-bottom: 3px solid var(--ink); padding: 18px; position: relative;
+    display: grid; place-items: center; min-height: 156px;
+    background:
+      repeating-linear-gradient(var(--paper-2) 0 22px, var(--ink) 22px 23px);
+  }
+  .suspect .mug svg { width: 96px; height: 96px; }
+  .suspect .case {
+    position: absolute; left: 10px; top: 10px; font-family: var(--mono);
+    font-weight: 600; font-size: 11px; letter-spacing: 0.1em; color: var(--ink);
+    background: var(--paper); border: 2px solid var(--ink); padding: 2px 7px;
+  }
+  .suspect .charge { position: absolute; right: 10px; bottom: 10px; }
+  .suspect .body { padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+  .suspect .alias { font-family: var(--mono); font-size: 11.5px; color: var(--steel-d); letter-spacing: 0.03em; }
+  .suspect h3 { font-family: var(--poster); font-weight: 400; text-transform: uppercase; font-size: 23px; line-height: 1; margin: 2px 0 4px; }
+  .suspect .crime { color: var(--ink-2); font-size: 15px; font-weight: 600; }
+  .tag {
+    align-self: flex-start; margin-top: auto; font-family: var(--mono); font-size: 11px;
+    font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em;
+    padding: 3px 8px; border: 2px solid var(--ink);
+  }
+  .tag.on { background: var(--ember); color: var(--paper-ink); border-color: var(--ember-d); }
+  .tag.idx { background: var(--paper-2); }
+
+  /* ---- manifesto / receipts ---- */
+  .receipts .inner { padding: 34px; }
+  .receipts h2 { font-family: var(--poster); font-weight: 400; text-transform: uppercase; font-size: clamp(28px,4.6vw,48px); margin: 0; line-height: 0.98; }
+  .receipts .lead { font-weight: 600; font-size: 19px; max-width: 60ch; margin: 14px 0 0; }
+  .receipts .lead em { font-style: normal; background: var(--ember); color: var(--paper-ink); padding: 0 6px; }
+  .cards { display: grid; grid-template-columns: repeat(2,1fr); gap: 18px; margin-top: 26px; }
+  @media (max-width: 720px) { .cards { grid-template-columns: 1fr; } }
+  .rc { border: 3px solid var(--ink); padding: 18px 20px; background: var(--paper); box-shadow: var(--shadow-sm); }
+  .rc h4 { font-family: var(--mono); font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; margin: 0 0 8px; color: var(--ember-d); }
+  .rc p { margin: 0; color: var(--ink-2); font-weight: 600; font-size: 15px; }
+  .rc .big { font-family: var(--poster); font-size: 40px; color: var(--ink); line-height: 1; display: block; margin-bottom: 4px; }
+  .rc code { font-family: var(--mono); font-size: 13px; background: var(--paper-2); padding: 1px 5px; border: 1px solid var(--ink); }
+
+  /* ---- languages strip ---- */
+  .langs { display: flex; flex-wrap: wrap; gap: 12px; }
+  .langs .l {
+    font-family: var(--poster); text-transform: uppercase; font-size: 22px;
+    border: 3px solid var(--ink); padding: 8px 16px 5px; box-shadow: var(--shadow-sm);
+    background: var(--paper);
+  }
+  .langs .l.self { background: var(--steel); color: var(--paper-ink); border-color: var(--steel-d); }
+
+  /* ---- install ---- */
+  .install-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 760px) { .install-grid { grid-template-columns: 1fr; } }
+  .term { background: var(--ink); border: 3px solid var(--ink); box-shadow: var(--shadow); overflow: hidden; }
+  .term .top { display: flex; gap: 7px; padding: 11px 14px; border-bottom: 2px solid #33291a; }
+  .term .top i { width: 12px; height: 12px; border-radius: 50%; display: block; border: 2px solid #0d0b07; }
+  .term .top .r { background: var(--ember); } .term .top .y { background: #c79433; } .term .top .g { background: #6c9a6b; }
+  .term pre { margin: 0; padding: 18px 18px 20px; overflow-x: auto; }
+  .term code { font-family: var(--mono); font-size: 13.5px; line-height: 1.85; color: #e7e2d4; white-space: pre; }
+  .term .c { color: #8a8163; } .term .p { color: var(--ember); } .term .s { color: #7fae7d; }
+  .note-card { border: 3px solid var(--ink); background: var(--paper-2); padding: 20px 22px; box-shadow: var(--shadow-sm); }
+  .note-card h3 { font-family: var(--poster); font-weight: 400; text-transform: uppercase; font-size: 22px; margin: 0 0 10px; }
+  .note-card p { margin: 0 0 12px; font-weight: 600; color: var(--ink-2); font-size: 15px; }
+  .note-card p:last-child { margin-bottom: 0; }
+  .note-card code { font-family: var(--mono); font-size: 12.5px; background: var(--paper); border: 1px solid var(--ink); padding: 1px 5px; display: inline-block; }
+
+  /* ---- footer ---- */
+  footer { border-top: 3px solid var(--ink); margin-top: 20px; padding: 28px 0 44px; }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 16px 28px; align-items: center; }
+  footer .logo { font-size: 22px; }
+  footer a { font-family: var(--mono); font-size: 13px; font-weight: 600; text-decoration: none; }
+  footer a:hover { color: var(--ember-d); }
+  footer .spacer { margin-left: auto; }
+  footer .fine { width: 100%; color: var(--ink-2); font-size: 13px; font-weight: 600; margin-top: 6px; }
+
+  ::selection { background: var(--ember); color: var(--paper-ink); }
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <div class="wrap">
+    <span class="logo">Dross<span class="dot">.</span></span>
+    <nav>
+      <a href="#suspects">The suspects</a>
+      <a href="#receipts">Receipts</a>
+      <a href="#install">Install</a>
+      <a href="https://github.com/Sarthak-47/Dross" class="ghint">GitHub&nbsp;↗</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+<section class="hero">
+  <div class="wrap hero-grid">
+    <div class="panel hero-main halftone" style="background-blend-mode:multiply;">
+      <p class="eyebrow kicker">Pre-commit inspector · for the diffs your agent wrote</p>
+      <h1>Skim the <span class="skim">dross</span> before you cast.</h1>
+      <p class="sub">Your agent wrote 400 lines. <span class="u">Three of them lie.</span></p>
+      <p class="lede">Dross is the slag skimmed off molten metal before it&rsquo;s poured. This one skims a diff — the duplicated logic, the silently changed contract, the test that only proves itself — before it reaches your history.</p>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/Sarthak-47/Dross/releases/latest">Get the latest release</a>
+        <a class="btn" href="https://github.com/Sarthak-47/Dross">Read the source</a>
+      </div>
+    </div>
+
+    <aside class="panel hero-side">
+      <div class="bubble">Show me the diff. I&rsquo;ll show you the <b>three lines that lie</b> — a parser and a graph, no opinions.</div>
+      <div class="inspector halftone-ember" style="background-blend-mode:multiply;border:3px solid var(--ink);">
+        <span class="burst">No&nbsp;model<br>calls</span>
+        <!-- Inspector's loupe over a defect: an ink glyph, coherent with the suspect set -->
+        <svg viewBox="0 0 200 200" fill="none" stroke="var(--ink)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" aria-label="An inspector's loupe over a flaw in the code">
+          <rect x="20" y="30" width="150" height="120" rx="8" fill="var(--paper)"/>
+          <path d="M40 62 h60 M40 84 h84 M40 106 h44" stroke="var(--ink-2)" stroke-width="6"/>
+          <path d="M126 96 l26 26" stroke="var(--ember)"/>
+          <circle cx="120" cy="118" r="34" fill="var(--paper)" stroke="var(--ember)"/>
+          <path d="M150 148 l24 24" stroke="var(--ember)" stroke-width="12"/>
+          <path d="M108 118 l9 9 l16 -20" stroke="var(--steel-d)" stroke-width="7"/>
+        </svg>
+      </div>
+    </aside>
+  </div>
+</section>
+
+<section id="how">
+  <div class="wrap">
+    <div class="thesis">
+      <div class="inner">
+        <div>
+          <h2>No model reads your&nbsp;code. <em>Ever.</em></h2>
+          <p>Every check is a parser, a hash, or a graph algorithm. That is the whole design: it makes a run deterministic, reproducible, offline, and free. The same diff analysed twice gives byte-identical output — enforced in CI, not asserted here.</p>
+        </div>
+        <div class="flow" aria-label="How a run works">
+          <div class="step"><span class="n">1</span> git diff — staged, or a range</div>
+          <div class="arrow">▼</div>
+          <div class="step"><span class="n">2</span> tree-sitter · git2 · a fingerprint index</div>
+          <div class="arrow">▼</div>
+          <div class="step"><span class="n">3</span> findings, with the evidence you can check</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="suspects">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <span class="eyebrow">Case file · six known offenders</span>
+        <h2>The usual suspects</h2>
+      </div>
+      <p>The failure modes AI diffs hit again and again — each caught by shape, not by opinion.</p>
+    </div>
+    <div class="gallery">
+
+      <article class="panel suspect">
+        <div class="mug">
+          <span class="case">No. 01</span>
+          <svg viewBox="0 0 100 100" fill="none" stroke="var(--ink)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 34 q30 -22 60 0" /><path d="M50 12 v14"/>
+            <rect x="24" y="40" width="52" height="40" rx="6" fill="var(--paper)"/>
+            <path d="M34 78 l32 -34" stroke="var(--ember)"/>
+            <path d="M36 56 h4 M60 56 h4" />
+          </svg>
+          <span class="stamp charge" style="font-size:14px">Caught</span>
+        </div>
+        <div class="body">
+          <span class="alias">swallowed-exception</span>
+          <h3>The Mute</h3>
+          <p class="crime">Catches the error, tells no one. The caller sails on believing it worked.</p>
+          <span class="tag on">On by default</span>
+        </div>
+      </article>
+
+      <article class="panel suspect">
+        <div class="mug">
+          <span class="case">No. 02</span>
+          <svg viewBox="0 0 100 100" fill="none" stroke="var(--ink)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M50 16 l30 10 v22 q0 26 -30 36 q-30 -10 -30 -36 v-22 z" fill="var(--paper)"/>
+            <path d="M36 30 q14 -12 28 0" stroke="var(--ember)" stroke-width="5"/>
+            <path d="M38 52 h24" /><path d="M42 64 h16"/>
+          </svg>
+          <span class="stamp charge" style="font-size:14px">Caught</span>
+        </div>
+        <div class="body">
+          <span class="alias">contract-change</span>
+          <h3>The Forger</h3>
+          <p class="crime">Rewrote the signature. Every existing caller still thinks the old promise holds.</p>
+          <span class="tag on">On by default</span>
+        </div>
+      </article>
+
+      <article class="panel suspect">
+        <div class="mug">
+          <span class="case">No. 03</span>
+          <svg viewBox="0 0 100 100" fill="none" stroke="var(--ink)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="16" y="24" width="40" height="52" rx="5" fill="var(--paper)"/>
+            <rect x="44" y="34" width="40" height="52" rx="5" fill="var(--paper)"/>
+            <path d="M52 48 h24 M52 60 h24 M52 72 h14" stroke="var(--ember)" stroke-width="5"/>
+          </svg>
+          <span class="stamp charge" style="font-size:14px">Caught</span>
+        </div>
+        <div class="body">
+          <span class="alias">structural-clone</span>
+          <h3>The Twin</h3>
+          <p class="crime">Copy-pasted logic wearing a new name. Fix one, the other keeps the bug.</p>
+          <span class="tag idx">Off · unproven</span>
+        </div>
+      </article>
+
+      <article class="panel suspect">
+        <div class="mug">
+          <span class="case">No. 04</span>
+          <svg viewBox="0 0 100 100" fill="none" stroke="var(--ink)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="50" cy="50" r="34" fill="var(--paper)"/>
+            <path d="M34 52 l11 11 l22 -26" stroke="var(--steel-d)" stroke-width="8"/>
+            <path d="M50 12 v-0.5 M50 88 v0.5" />
+            <path d="M78 34 l3 -2 M19 34 l-3 -2" stroke="var(--ember)"/>
+          </svg>
+          <span class="stamp charge" style="font-size:14px">Caught</span>
+        </div>
+        <div class="body">
+          <span class="alias">tautological-test</span>
+          <h3>The Rubber Stamp</h3>
+          <p class="crime">Asserts exactly what it just computed. Always green. Proves nothing at all.</p>
+          <span class="tag on">On by default</span>
+        </div>
+      </article>
+
+      <article class="panel suspect">
+        <div class="mug">
+          <span class="case">No. 05</span>
+          <svg viewBox="0 0 100 100" fill="none" stroke="var(--ink)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="34" cy="34" r="12" fill="var(--paper)"/><circle cx="70" cy="30" r="9" fill="var(--paper)"/>
+            <circle cx="72" cy="64" r="11" fill="var(--paper)"/><circle cx="38" cy="70" r="8" fill="var(--paper)"/>
+            <path d="M34 46 v10 M46 34 h14 M70 39 v14 M50 66 h10" stroke="var(--ember)" stroke-width="5"/>
+          </svg>
+          <span class="stamp charge" style="font-size:14px">Caught</span>
+        </div>
+        <div class="body">
+          <span class="alias">over-engineering</span>
+          <h3>The Architect</h3>
+          <p class="crime">A factory, a registry, and five classes — to make exactly one call.</p>
+          <span class="tag on">On by default</span>
+        </div>
+      </article>
+
+      <article class="panel suspect">
+        <div class="mug">
+          <span class="case">No. 06</span>
+          <svg viewBox="0 0 100 100" fill="none" stroke="var(--ink)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 78 q6 -40 20 -40 q10 0 8 18 q-2 16 10 16 q14 0 16 -46" fill="none" stroke="var(--ink)"/>
+            <path d="M18 78 h64" stroke="var(--ink)"/>
+            <path d="M76 20 l6 8 l-12 2 z" fill="var(--ember)" stroke="var(--ember)"/>
+          </svg>
+          <span class="stamp charge" style="font-size:14px">Caught</span>
+        </div>
+        <div class="body">
+          <span class="alias">complexity-outlier</span>
+          <h3>The Overkill</h3>
+          <p class="crime">Eight times more convoluted than this codebase&rsquo;s norm for the size of the job.</p>
+          <span class="tag idx">Off · a prompt, not a verdict</span>
+        </div>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<section id="receipts">
+  <div class="wrap">
+    <div class="panel receipts">
+      <div class="inner">
+        <span class="eyebrow">The part most tools skip</span>
+        <h2>Measured. Not asserted.</h2>
+        <p class="lead">Every precision figure was <em>measured</em> across 22 open-source repositories and published with its limits. Where a mature tool asks a comparable question, the judgement is taken out of our hands entirely.</p>
+        <div class="cards">
+          <div class="rc">
+            <h4>Corroborated by outsiders</h4>
+            <span class="big">149&nbsp;/&nbsp;149</span>
+            <p>Every empty-catch and broad-catch finding these tools have a rule for, <code>ruff</code> and <code>oxlint</code> flagged too. Clones are checked against <code>jscpd</code>; complexity against <code>ruff C901</code>.</p>
+          </div>
+          <div class="rc">
+            <h4>Four signals ship switched OFF</h4>
+            <span class="big">0&ndash;3%</span>
+            <p>An independent reviewer labelled their output and put all four near zero precision. So they stay off. A tool that hides its weak checks gets uninstalled at the first false alarm.</p>
+          </div>
+          <div class="rc">
+            <h4>Reproducible to the byte</h4>
+            <span class="big">deterministic</span>
+            <p>No model calls, no network, no cache. CI runs the same diff twice and diffs the output. Release binaries carry signed build provenance and <code>SHA256SUMS</code>.</p>
+          </div>
+          <div class="rc">
+            <h4>Reads its own source</h4>
+            <span class="big">Rust&nbsp;+&nbsp;4</span>
+            <p>Written in Rust, and it checks Rust — it found a real contract change in its own history. Plus JavaScript, TypeScript, TSX and Python.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="languages">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <span class="eyebrow">Parsed, not guessed</span>
+        <h2>Five languages</h2>
+      </div>
+      <p>A file in a language it can&rsquo;t parse is reported as unread — never counted as clean.</p>
+    </div>
+    <div class="langs">
+      <span class="l">JavaScript</span>
+      <span class="l">TypeScript</span>
+      <span class="l">TSX</span>
+      <span class="l">Python</span>
+      <span class="l self">Rust ⟲ itself</span>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <span class="eyebrow">Build it · wire it into your agent</span>
+        <h2>Get to work</h2>
+      </div>
+      <p>Requires Rust 1.88+. Prebuilt CLIs and desktop installers are on the releases page.</p>
+    </div>
+    <div class="install-grid">
+      <div class="term" aria-label="Terminal commands to build and run Dross">
+        <div class="top"><i class="r"></i><i class="y"></i><i class="g"></i></div>
+<pre><code><span class="c"># build from source — nothing leaves your machine</span>
+git clone https://github.com/Sarthak-47/Dross.git
+<span class="p">cargo</span> build --release
+
+<span class="c"># check what you're about to commit</span>
+<span class="p">dross</span> check --staged
+
+<span class="c"># build the whole-repo index, then find clones</span>
+<span class="p">dross</span> index
+<span class="p">dross</span> check --worktree
+
+<span class="s">✓ clean — 34 file(s), 41ms · no network calls · 0 bytes sent</span></code></pre>
+      </div>
+      <div class="note-card">
+        <h3>On trust</h3>
+        <p>The binaries are <b>unsigned</b> — there is no paid certificate behind this project, so Gatekeeper and SmartScreen will warn on first run. That warning is accurate; don&rsquo;t wave it away on the strength of a landing page.</p>
+        <p>Instead, every release asset carries signed build provenance you can verify:</p>
+        <p><code>gh attestation verify dross-… --repo Sarthak-47/Dross</code></p>
+        <p>It proves the file came from this repo&rsquo;s CI at a commit you can read. Building from source needs no trust at all.</p>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span class="logo">Dross<span class="dot">.</span></span>
+    <a href="https://github.com/Sarthak-47/Dross">github.com/Sarthak-47/Dross</a>
+    <a href="https://github.com/Sarthak-47/Dross/blob/main/docs/BENCHMARK_RESULTS.md">The full benchmark</a>
+    <a href="https://github.com/Sarthak-47/Dross/releases">Releases</a>
+    <span class="spacer"></span>
+    <a href="https://github.com/Sarthak-47/Dross/blob/main/LICENSE">Apache-2.0</a>
+    <p class="fine">Deterministic structural checks for AI-generated diffs. No model calls anywhere in the pipeline — the numbers on this page are measured and reproducible, and the four weakest checks are shipped off, on purpose.</p>
+  </div>
+</footer>
+
+</body>
+</html>

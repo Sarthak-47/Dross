@@ -4,8 +4,25 @@
     {
       "name": "desktop-ui",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--prefix", "apps/desktop"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--prefix",
+        "apps/desktop"
+      ],
       "port": 5173
+    },
+    {
+      "name": "landing",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8123",
+        "--directory",
+        "site"
+      ],
+      "port": 8123
     }
   ]
 }
